@@ -11,7 +11,7 @@ app.use(cors());
 app.use(express.json());
 
 // Versión actual del firmware
-const FIRMWARE_VERSION = "1.0.0";
+const FIRMWARE_VERSION = "1.0.1";
 const FIRMWARE_PATH = path.join(path.resolve(), "firmware.bin");
 
 // Ruta para obtener la versión actual del firmware

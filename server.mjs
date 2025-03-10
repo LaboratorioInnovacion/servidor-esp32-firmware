@@ -1,43 +1,118 @@
 import express from "express";
 import fs from "fs";
-import path from "path";
 import cors from "cors";
 
 const app = express();
 const PORT = 3000;
 
-// Habilitar CORS y JSON
-app.use(cors());
 app.use(express.json());
+app.use(cors());
 
-// Versión actual del firmware
-const FIRMWARE_VERSION = "1.0.1";
-const FIRMWARE_PATH = path.join(path.resolve(), "firmware.bin");
+const VERSION_FILE = "version.json"; // Archivo donde se guarda la versión actual
+const FIRMWARE_PATH = "./firmware.bin"; // Ruta del firmware
 
-// Ruta para obtener la versión actual del firmware
-app.get("/version", (req, res) => {
-    res.send(FIRMWARE_VERSION);
+// Función para obtener la versión actual del firmware
+const getCurrentVersion = () => {
+    if (fs.existsSync(VERSION_FILE)) {
+        const data = fs.readFileSync(VERSION_FILE, "utf8");
+        return JSON.parse(data).version;
+    }
+    return "1.0.0"; // Versión por defecto si no existe el archivo
+};
+
+// Función para actualizar la versión en el servidor
+const setCurrentVersion = (newVersion) => {
+    fs.writeFileSync(VERSION_FILE, JSON.stringify({ version: newVersion }, null, 2), "utf8");
+};
+
+// Ruta para verificar actualizaciones
+app.post("/update", (req, res) => {
+    const { currentVersion } = req.body;
+
+    if (!currentVersion) {
+        return res.status(400).json({ error: "Versión actual no proporcionada" });
+    }
+
+    const latestVersion = getCurrentVersion();
+    console.log(`ESP32 conectado con versión: ${currentVersion}`);
+
+    if (currentVersion !== latestVersion) {
+        return res.json({
+            version: latestVersion,
+            firmware: `https://servidor-esp32.onrender.com:${PORT}/firmware.bin`
+        });
+    }
+
+    res.json({ message: "El firmware está actualizado", version: latestVersion });
 });
 
-// Ruta para descargar el firmware
-app.get("/firmware", (req, res) => {
+// Ruta para servir el firmware
+app.get("/firmware.bin", (req, res) => {
     if (fs.existsSync(FIRMWARE_PATH)) {
-        res.sendFile(FIRMWARE_PATH);
+        res.download(FIRMWARE_PATH);
     } else {
-        res.status(404).send("Firmware not found");
+        res.status(404).json({ error: "Firmware no encontrado" });
     }
 });
 
-// Ruta para recibir datos de sensores
-app.post("/api/sensordata", (req, res) => {
-    const data = req.body;
-    console.log("Datos recibidos:", data);
-    res.status(200).json({ message: "Datos recibidos correctamente" });
+// Ruta para actualizar la versión del firmware en el servidor
+app.post("/set-version", (req, res) => {
+    const { newVersion } = req.body;
+
+    if (!newVersion) {
+        return res.status(400).json({ error: "Nueva versión no proporcionada" });
+    }
+
+    setCurrentVersion(newVersion);
+    console.log(`Versión del firmware actualizada a: ${newVersion}`);
+    res.json({ message: "Versión actualizada correctamente", version: newVersion });
 });
 
+// Iniciar el servidor
 app.listen(PORT, () => {
-    console.log(`Servidor corriendo en http://192.168.1.100:${PORT}`);
+    console.log(`Servidor OTA corriendo en http://localhost:${PORT}`);
 });
+
+// import express from "express";
+// import fs from "fs";
+// import path from "path";
+// import cors from "cors";
+
+// const app = express();
+// const PORT = 3000;
+
+// // Habilitar CORS y JSON
+// app.use(cors());
+// app.use(express.json());
+
+// // Versión actual del firmware
+// const FIRMWARE_VERSION = "1.0.1";
+// const FIRMWARE_PATH = path.join(path.resolve(), "firmware.bin");
+
+// // Ruta para obtener la versión actual del firmware
+// app.get("/version", (req, res) => {
+//     res.send(FIRMWARE_VERSION);
+// });
+
+// // Ruta para descargar el firmware
+// app.get("/firmware", (req, res) => {
+//     if (fs.existsSync(FIRMWARE_PATH)) {
+//         res.sendFile(FIRMWARE_PATH);
+//     } else {
+//         res.status(404).send("Firmware not found");
+//     }
+// });
+
+// // Ruta para recibir datos de sensores
+// app.post("/api/sensordata", (req, res) => {
+//     const data = req.body;
+//     console.log("Datos recibidos:", data);
+//     res.status(200).json({ message: "Datos recibidos correctamente" });
+// });
+
+// app.listen(PORT, () => {
+//     console.log(`Servidor corriendo en http://192.168.1.100:${PORT}`);
+// });
 
 // import express from "express";
 // import fs from "fs";

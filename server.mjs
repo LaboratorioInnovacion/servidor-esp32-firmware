@@ -1,9 +1,15 @@
-const express = require("express");
-const fs = require("fs");
-const path = require("path");
+import express from "express";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
 
 const app = express();
 const PORT = 3000;
+
+// Obtener __dirname en ES module
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // 📂 Ruta del firmware
 const firmwarePath = path.join(__dirname, "firmware.bin");

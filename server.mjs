@@ -4,62 +4,35 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
-const app = express();
-const upload = multer({ dest: "uploads/" });
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const firmwareDir = path.join(__dirname, "firmware");
-const versionFile = path.join(firmwareDir, "version.json");
+const app = express();
+const PORT = 3000;
+const firmwarePath = path.join(__dirname, "firmware.bin");
 
-// Asegurar que la carpeta firmware existe
-if (!fs.existsSync(firmwareDir)) {
-    fs.mkdirSync(firmwareDir);
-}
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => cb(null, __dirname),
+    filename: (req, file, cb) => cb(null, "firmware.bin")
+});
+const upload = multer({ storage });
 
-// Cargar versión actual
-let firmwareVersion = { version: "1.0.0" };
-if (fs.existsSync(versionFile)) {
-    firmwareVersion = JSON.parse(fs.readFileSync(versionFile, "utf8"));
-}
-
-// 🟢 SUBIR FIRMWARE
 app.post("/upload", upload.single("firmware"), (req, res) => {
-    const version = req.body.version;
-    
-    if (!req.file || !version) {
-        return res.status(400).send("Falta el archivo o la versión.");
-    }
-
-    // Guardar nuevo firmware
-    const firmwarePath = path.join(firmwareDir, `firmware_${version}.bin`);
-    fs.renameSync(req.file.path, firmwarePath);
-
-    // Actualizar versión
-    firmwareVersion = { version };
-    fs.writeFileSync(versionFile, JSON.stringify(firmwareVersion));
-
-    res.send(`Firmware actualizado a la versión ${version}`);
+    console.log(`Firmware recibido: ${req.file.originalname}`);
+    res.json({ message: "Firmware actualizado correctamente" });
 });
 
-// 🟢 OBTENER VERSIÓN MÁS RECIENTE
-app.get("/firmware/version", (req, res) => {
-    res.json(firmwareVersion);
-});
-
-// 🟢 DESCARGAR ÚLTIMO FIRMWARE
-app.get("/firmware/latest", (req, res) => {
-    const latestFirmware = path.join(firmwareDir, `firmware_${firmwareVersion.version}.bin`);
-    if (fs.existsSync(latestFirmware)) {
-        res.download(latestFirmware);
+app.get("/firmware.bin", (req, res) => {
+    if (fs.existsSync(firmwarePath)) {
+        res.sendFile(firmwarePath);
     } else {
-        res.status(404).send("Firmware no encontrado.");
+        res.status(404).send("No hay firmware disponible");
     }
 });
 
-// Iniciar servidor
-app.listen(3000, () => console.log("Servidor corriendo en el puerto 3000"));
+app.listen(PORT, () => {
+    console.log(`Servidor corriendo en http://localhost:${PORT}`);
+});
 
 // import express from "express";
 // import multer from "multer";

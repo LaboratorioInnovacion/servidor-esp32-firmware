@@ -1,77 +1,178 @@
 import express from "express";
+import multer from "multer";
 import fs from "fs";
-import cors from "cors";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const app = express();
-const PORT = 3000;
+const upload = multer({ dest: "uploads/" });
 
-app.use(express.json());
-app.use(cors());
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-const VERSION_FILE = "version.json"; // Archivo donde se guarda la versión actual
-const FIRMWARE_PATH = "./firmware.bin"; // Ruta del firmware
+const firmwareDir = path.join(__dirname, "firmware");
+const versionFile = path.join(firmwareDir, "version.json");
 
-// Función para obtener la versión actual del firmware
-const getCurrentVersion = () => {
-    if (fs.existsSync(VERSION_FILE)) {
-        const data = fs.readFileSync(VERSION_FILE, "utf8");
-        return JSON.parse(data).version;
-    }
-    return "1.0.0"; // Versión por defecto si no existe el archivo
-};
+// Asegurar que la carpeta firmware existe
+if (!fs.existsSync(firmwareDir)) {
+    fs.mkdirSync(firmwareDir);
+}
 
-// Función para actualizar la versión en el servidor
-const setCurrentVersion = (newVersion) => {
-    fs.writeFileSync(VERSION_FILE, JSON.stringify({ version: newVersion }, null, 2), "utf8");
-};
+// Cargar versión actual
+let firmwareVersion = { version: "1.0.0" };
+if (fs.existsSync(versionFile)) {
+    firmwareVersion = JSON.parse(fs.readFileSync(versionFile, "utf8"));
+}
 
-// Ruta para verificar actualizaciones
-app.post("/update", (req, res) => {
-    const { currentVersion } = req.body;
-
-    if (!currentVersion) {
-        return res.status(400).json({ error: "Versión actual no proporcionada" });
+// 🟢 SUBIR FIRMWARE
+app.post("/upload", upload.single("firmware"), (req, res) => {
+    const version = req.body.version;
+    
+    if (!req.file || !version) {
+        return res.status(400).send("Falta el archivo o la versión.");
     }
 
-    const latestVersion = getCurrentVersion();
-    console.log(`ESP32 conectado con versión: ${currentVersion}`);
+    // Guardar nuevo firmware
+    const firmwarePath = path.join(firmwareDir, `firmware_${version}.bin`);
+    fs.renameSync(req.file.path, firmwarePath);
 
-    if (currentVersion !== latestVersion) {
-        return res.json({
-            version: latestVersion,
-            firmware: `https://servidor-esp32.onrender.com:${PORT}/firmware.bin`
-        });
-    }
+    // Actualizar versión
+    firmwareVersion = { version };
+    fs.writeFileSync(versionFile, JSON.stringify(firmwareVersion));
 
-    res.json({ message: "El firmware está actualizado", version: latestVersion });
+    res.send(`Firmware actualizado a la versión ${version}`);
 });
 
-// Ruta para servir el firmware
-app.get("/firmware.bin", (req, res) => {
-    if (fs.existsSync(FIRMWARE_PATH)) {
-        res.download(FIRMWARE_PATH);
+// 🟢 OBTENER VERSIÓN MÁS RECIENTE
+app.get("/firmware/version", (req, res) => {
+    res.json(firmwareVersion);
+});
+
+// 🟢 DESCARGAR ÚLTIMO FIRMWARE
+app.get("/firmware/latest", (req, res) => {
+    const latestFirmware = path.join(firmwareDir, `firmware_${firmwareVersion.version}.bin`);
+    if (fs.existsSync(latestFirmware)) {
+        res.download(latestFirmware);
     } else {
-        res.status(404).json({ error: "Firmware no encontrado" });
+        res.status(404).send("Firmware no encontrado.");
     }
 });
 
-// Ruta para actualizar la versión del firmware en el servidor
-app.post("/set-version", (req, res) => {
-    const { newVersion } = req.body;
+// Iniciar servidor
+app.listen(3000, () => console.log("Servidor corriendo en el puerto 3000"));
 
-    if (!newVersion) {
-        return res.status(400).json({ error: "Nueva versión no proporcionada" });
-    }
+// import express from "express";
+// import multer from "multer";
+// import fs from "fs";
 
-    setCurrentVersion(newVersion);
-    console.log(`Versión del firmware actualizada a: ${newVersion}`);
-    res.json({ message: "Versión actualizada correctamente", version: newVersion });
-});
+// const app = express();
+// const upload = multer({ dest: "uploads/" });
 
-// Iniciar el servidor
-app.listen(PORT, () => {
-    console.log(`Servidor OTA corriendo en http://localhost:${PORT}`);
-});
+// let firmwareVersion = { version: "1.0.0" };
+
+// app.post("/upload", upload.single("firmware"), (req, res) => {
+//     const version = req.body.version;
+    
+//     if (!req.file || !version) {
+//         return res.status(400).send("Falta el archivo o la versión.");
+//     }
+
+//     // Mueve el archivo a la carpeta de firmware con el nombre correcto
+//     const firmwarePath = `./firmware/firmware_${version}.bin`;
+//     fs.renameSync(req.file.path, firmwarePath);
+
+//     // Actualiza la versión en el servidor
+//     firmwareVersion.version = version;
+//     fs.writeFileSync("./firmware/version.json", JSON.stringify(firmwareVersion));
+
+//     res.send(`Firmware actualizado a la versión ${version}`);
+// });
+
+// app.get("/firmware/version", (req, res) => {
+//     res.json(firmwareVersion);
+// });
+
+// app.get("/firmware/latest", (req, res) => {
+//     res.download(`./firmware/firmware_${firmwareVersion.version}.bin`);
+// });
+
+// app.listen(3000, () => console.log("Servidor corriendo en el puerto 3000"));
+
+
+// import express from "express";
+// import fs from "fs";
+// import cors from "cors";
+
+// const app = express();
+// const PORT = 3000;
+
+// app.use(express.json());
+// app.use(cors());
+
+// const VERSION_FILE = "version.json"; // Archivo donde se guarda la versión actual
+// const FIRMWARE_PATH = "./firmware.bin"; // Ruta del firmware
+
+// // Función para obtener la versión actual del firmware
+// const getCurrentVersion = () => {
+//     if (fs.existsSync(VERSION_FILE)) {
+//         const data = fs.readFileSync(VERSION_FILE, "utf8");
+//         return JSON.parse(data).version;
+//     }
+//     return "1.0.0"; // Versión por defecto si no existe el archivo
+// };
+
+// // Función para actualizar la versión en el servidor
+// const setCurrentVersion = (newVersion) => {
+//     fs.writeFileSync(VERSION_FILE, JSON.stringify({ version: newVersion }, null, 2), "utf8");
+// };
+
+// // Ruta para verificar actualizaciones
+// app.post("/update", (req, res) => {
+//     const { currentVersion } = req.body;
+
+//     if (!currentVersion) {
+//         return res.status(400).json({ error: "Versión actual no proporcionada" });
+//     }
+
+//     const latestVersion = getCurrentVersion();
+//     console.log(`ESP32 conectado con versión: ${currentVersion}`);
+
+//     if (currentVersion !== latestVersion) {
+//         return res.json({
+//             version: latestVersion,
+//             firmware: `https://servidor-esp32.onrender.com:${PORT}/firmware.bin`
+//         });
+//     }
+
+//     res.json({ message: "El firmware está actualizado", version: latestVersion });
+// });
+
+// // Ruta para servir el firmware
+// app.get("/firmware.bin", (req, res) => {
+//     if (fs.existsSync(FIRMWARE_PATH)) {
+//         res.download(FIRMWARE_PATH);
+//     } else {
+//         res.status(404).json({ error: "Firmware no encontrado" });
+//     }
+// });
+
+// // Ruta para actualizar la versión del firmware en el servidor
+// app.post("/set-version", (req, res) => {
+//     const { newVersion } = req.body;
+
+//     if (!newVersion) {
+//         return res.status(400).json({ error: "Nueva versión no proporcionada" });
+//     }
+
+//     setCurrentVersion(newVersion);
+//     console.log(`Versión del firmware actualizada a: ${newVersion}`);
+//     res.json({ message: "Versión actualizada correctamente", version: newVersion });
+// });
+
+// // Iniciar el servidor
+// app.listen(PORT, () => {
+//     console.log(`Servidor OTA corriendo en http://localhost:${PORT}`);
+// });
 
 // import express from "express";
 // import fs from "fs";

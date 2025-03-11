@@ -6,37 +6,42 @@ import path from "path";
 const app = express();
 const upload = multer({ dest: "uploads/" });
 
-let latestVersion = 1; // Inicialmente, la versión actual del firmware
+let latestVersion = 1; // Versión inicial del firmware
 
-// Endpoint para recibir el firmware y actualizar la versión
+// Endpoint para subir un nuevo firmware
 app.post("/upload", upload.single("firmware"), (req, res) => {
     if (!req.file) {
         return res.status(400).send("No file uploaded");
     }
-    
+
     const newPath = path.join("uploads", "firmware.bin");
-    
+
+    // Mover el archivo a la ubicación final
     fs.rename(req.file.path, newPath, (err) => {
         if (err) {
             return res.status(500).send("Error al mover el archivo");
         }
-        
-        latestVersion++; // Incrementa la versión del firmware
+
+        latestVersion++; // Incrementa la versión
         res.send(`Firmware subido correctamente. Nueva versión: ${latestVersion}`);
     });
 });
 
-// Endpoint para que el ESP32 consulte la última versión
+// Endpoint para que el ESP32 consulte la versión del firmware
 app.get("/check_update", (req, res) => {
-    res.json({ version: latestVersion });
+    res.json({
+        version: latestVersion,
+        url: `http://${req.headers.host}/firmware/firmware.bin`
+    });
 });
 
-// Servir el firmware para el ESP32
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+// Servir el firmware
+app.use("/firmware", express.static(path.join(__dirname, "uploads")));
 
 app.listen(3000, () => {
     console.log("Servidor corriendo en http://localhost:3000");
 });
+
 
 // import express from "express";
 // import multer from "multer";

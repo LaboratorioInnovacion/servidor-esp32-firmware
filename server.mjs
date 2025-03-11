@@ -1,68 +1,42 @@
-import express from 'express';
-import { WebSocketServer } from 'ws';
-import multer from 'multer';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import express from "express";
+import multer from "multer";
+import fs from "fs";
+import path from "path";
 
 const app = express();
-const port = 3000;
+const upload = multer({ dest: "uploads/" });
 
-// Configuración de almacenamiento para recibir archivos de firmware
-const storage = multer.diskStorage({
-    destination: './firmware',
-    filename: (req, file, cb) => {
-        cb(null, 'firmware.bin');
-    },
-});
-const upload = multer({ storage });
+let latestVersion = 1; // Inicialmente, la versión actual del firmware
 
-// Servir archivos estáticos (firmware)
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-app.use('/firmware', express.static(path.join(__dirname, 'firmware')));
-
-// Servidor WebSocket
-const wss = new WebSocketServer({ noServer: true });
-let espClient = null;
-
-wss.on('connection', (ws) => {
-    console.log('ESP32 conectado');
-    espClient = ws;
-
-    ws.on('close', () => {
-        console.log('ESP32 desconectado');
-        espClient = null;
-    });
-});
-
-// Endpoint para recibir el firmware
-app.post('/upload', upload.single('firmware'), (req, res) => {
-    console.log('Nuevo firmware recibido');
-
-    if (espClient) {
-        espClient.send(
-            JSON.stringify({
-                action: 'update',
-                url: `http://${req.headers.host}/firmware/firmware.bin`,
-            })
-        );
-        res.send('Firmware enviado al ESP32');
-    } else {
-        res.send('ESP32 no conectado');
+// Endpoint para recibir el firmware y actualizar la versión
+app.post("/upload", upload.single("firmware"), (req, res) => {
+    if (!req.file) {
+        return res.status(400).send("No file uploaded");
     }
-});
-
-// Manejo de WebSocket en HTTP Server
-const server = app.listen(port, () => {
-    console.log(`Servidor HTTP en http://localhost:${port}`);
-});
-
-server.on('upgrade', (request, socket, head) => {
-    wss.handleUpgrade(request, socket, head, (ws) => {
-        wss.emit('connection', ws, request);
+    
+    const newPath = path.join("uploads", "firmware.bin");
+    
+    fs.rename(req.file.path, newPath, (err) => {
+        if (err) {
+            return res.status(500).send("Error al mover el archivo");
+        }
+        
+        latestVersion++; // Incrementa la versión del firmware
+        res.send(`Firmware subido correctamente. Nueva versión: ${latestVersion}`);
     });
 });
 
+// Endpoint para que el ESP32 consulte la última versión
+app.get("/check_update", (req, res) => {
+    res.json({ version: latestVersion });
+});
+
+// Servir el firmware para el ESP32
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+app.listen(3000, () => {
+    console.log("Servidor corriendo en http://localhost:3000");
+});
 
 // import express from "express";
 // import multer from "multer";

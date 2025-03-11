@@ -4,46 +4,58 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
+// Configuración de directorios
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-const app = express();
 const PORT = 3000;
 const firmwarePath = path.join(__dirname, "firmware.bin");
 
-
+// Configuración de Multer para almacenar el archivo en disco
 const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, __dirname),
-    filename: (req, file, cb) => cb(null, "firmware.bin"),
-    
-    
-});
-const upload = multer({ 
-    storage,
-    limits: { fileSize: 10 * 1024 * 1024 } // Limite de 10 MB
-});
-
-app.post('/upload', upload.single('firmware'), (req, res) => {
-    console.log(`Firmware recibido: ${req.file.originalname}`);
-    res.json({ message: 'Firmware actualizado correctamente' });
-}, (err, req, res, next) => {
-    if (err) {
-        console.error('Error en la subida:', err.message);
-        res.status(400).json({ error: err.message });
-    }
+  destination: (req, file, cb) => {
+    // Guarda el archivo en el mismo directorio del script
+    cb(null, __dirname);
+  },
+  filename: (req, file, cb) => {
+    // Se guarda siempre con el nombre "firmware.bin"
+    cb(null, "firmware.bin");
+  },
 });
 
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // Límite de 10 MB
+});
 
+const app = express();
+
+// Endpoint para subir el archivo
+app.post("/upload", upload.single("firmware"), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "No se recibió ningún archivo" });
+  }
+  console.log(`Firmware recibido: ${req.file.originalname}`);
+  res.json({ message: "Firmware actualizado correctamente" });
+});
+
+// Middleware global para manejar errores de Multer y otros
+app.use((err, req, res, next) => {
+  console.error("Error en la subida:", err.message);
+  res.status(400).json({ error: err.message });
+});
+
+// Endpoint para obtener el firmware
 app.get("/firmware.bin", (req, res) => {
-    if (fs.existsSync(firmwarePath)) {
-        res.sendFile(firmwarePath);
-    } else {
-        res.status(404).send("No hay firmware disponible");
-    }
+  if (fs.existsSync(firmwarePath)) {
+    res.sendFile(firmwarePath);
+  } else {
+    res.status(404).send("No hay firmware disponible");
+  }
 });
 
+// Iniciar el servidor
 app.listen(PORT, () => {
-    console.log(`Servidor corriendo en http://localhost:${PORT}`);
+  console.log(`Servidor corriendo en http://localhost:${PORT}`);
 });
 
 // import express from "express";

@@ -11,16 +11,28 @@ const app = express();
 const PORT = 3000;
 const firmwarePath = path.join(__dirname, "firmware.bin");
 
+
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, __dirname),
-    filename: (req, file, cb) => cb(null, "firmware.bin")
+    filename: (req, file, cb) => cb(null, "firmware.bin"),
+    
+    
 });
-const upload = multer({ storage });
+const upload = multer({ 
+    storage,
+    limits: { fileSize: 10 * 1024 * 1024 } // Limite de 10 MB
+});
 
-app.post("/upload", upload.single("firmware"), (req, res) => {
+app.post('/upload', upload.single('firmware'), (req, res) => {
     console.log(`Firmware recibido: ${req.file.originalname}`);
-    res.json({ message: "Firmware actualizado correctamente" });
+    res.json({ message: 'Firmware actualizado correctamente' });
+}, (err, req, res, next) => {
+    if (err) {
+        console.error('Error en la subida:', err.message);
+        res.status(400).json({ error: err.message });
+    }
 });
+
 
 app.get("/firmware.bin", (req, res) => {
     if (fs.existsSync(firmwarePath)) {

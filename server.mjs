@@ -2,61 +2,98 @@ import express from "express";
 import multer from "multer";
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
-
-// Configuración de directorios
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const PORT = 3000;
-const firmwarePath = path.join(__dirname, "firmware.bin");
-
-// Configuración de Multer para almacenar el archivo en disco
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    // Guarda el archivo en el mismo directorio del script
-    cb(null, __dirname);
-  },
-  filename: (req, file, cb) => {
-    // Se guarda siempre con el nombre "firmware.bin"
-    cb(null, "firmware.bin");
-  },
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // Límite de 10 MB
-});
+import axios from "axios";
 
 const app = express();
+const upload = multer({ dest: "uploads/" });
+const ESP32_IP = "http://ESP32_IP_ADDRESS/update";
 
-// Endpoint para subir el archivo
-app.post("/upload", upload.single("firmware"), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: "No se recibió ningún archivo" });
-  }
-  console.log(`Firmware recibido: ${req.file.originalname}`);
-  res.json({ message: "Firmware actualizado correctamente" });
+app.post("/upload", upload.single("firmware"), async (req, res) => {
+    if (!req.file) {
+        return res.status(400).send("No file uploaded");
+    }
+    
+    try {
+        const fileStream = fs.createReadStream(req.file.path);
+        const response = await axios({
+            method: "POST",
+            url: ESP32_IP,
+            headers: {
+                "Content-Type": "application/octet-stream"
+            },
+            data: fileStream
+        });
+        
+        fs.unlinkSync(req.file.path); // Borra el archivo después de enviarlo
+        res.send("Firmware uploaded successfully: " + response.data);
+    } catch (error) {
+        res.status(500).send("Error uploading firmware: " + error.message);
+    }
 });
 
-// Middleware global para manejar errores de Multer y otros
-app.use((err, req, res, next) => {
-  console.error("Error en la subida:", err.message);
-  res.status(400).json({ error: err.message });
+app.listen(3000, () => {
+    console.log("Server running on port 3000");
 });
 
-// Endpoint para obtener el firmware
-app.get("/firmware.bin", (req, res) => {
-  if (fs.existsSync(firmwarePath)) {
-    res.sendFile(firmwarePath);
-  } else {
-    res.status(404).send("No hay firmware disponible");
-  }
-});
+// import express from "express";
+// import multer from "multer";
+// import fs from "fs";
+// import path from "path";
+// import { fileURLToPath } from "url";
 
-// Iniciar el servidor
-app.listen(PORT, () => {
-  console.log(`Servidor corriendo en http://localhost:${PORT}`);
-});
+// // Configuración de directorios
+// const __filename = fileURLToPath(import.meta.url);
+// const __dirname = path.dirname(__filename);
+// const PORT = 3000;
+// const firmwarePath = path.join(__dirname, "firmware.bin");
+
+// // Configuración de Multer para almacenar el archivo en disco
+// const storage = multer.diskStorage({
+//   destination: (req, file, cb) => {
+//     // Guarda el archivo en el mismo directorio del script
+//     cb(null, __dirname);
+//   },
+//   filename: (req, file, cb) => {
+//     // Se guarda siempre con el nombre "firmware.bin"
+//     cb(null, "firmware.bin");
+//   },
+// });
+
+// const upload = multer({
+//   storage,
+//   limits: { fileSize: 10 * 1024 * 1024 }, // Límite de 10 MB
+// });
+
+// const app = express();
+
+// // Endpoint para subir el archivo
+// app.post("/upload", upload.single("firmware"), (req, res) => {
+//   if (!req.file) {
+//     return res.status(400).json({ error: "No se recibió ningún archivo" });
+//   }
+//   console.log(`Firmware recibido: ${req.file.originalname}`);
+//   res.json({ message: "Firmware actualizado correctamente" });
+// });
+
+// // Middleware global para manejar errores de Multer y otros
+// app.use((err, req, res, next) => {
+//   console.error("Error en la subida:", err.message);
+//   res.status(400).json({ error: err.message });
+// });
+
+// // Endpoint para obtener el firmware
+// app.get("/firmware.bin", (req, res) => {
+//   if (fs.existsSync(firmwarePath)) {
+//     res.sendFile(firmwarePath);
+//   } else {
+//     res.status(404).send("No hay firmware disponible");
+//   }
+// });
+
+// // Iniciar el servidor
+// app.listen(PORT, () => {
+//   console.log(`Servidor corriendo en http://localhost:${PORT}`);
+// });
 
 // import express from "express";
 // import multer from "multer";

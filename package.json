@@ -1,7 +1,8 @@
 {
-  "scripts": {
-    "start": "pm2 start server.js"
-  },
+"scripts": {
+  "start": "pm2 start server.mjs",
+  "postinstall": "npm install pm2 -g"
+},
   "type": "module",
   "dependencies": {
     "arduino-iot-js": "^0.14.1",

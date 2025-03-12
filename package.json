@@ -1,17 +1,19 @@
-{  "scripts": {
+{
+  "scripts": {
     "start": "pm2 start server.js"
   },
-    "type": "module",
-    "dependencies": {
-        "arduino-iot-js": "^0.14.1",
-        "axios": "^1.8.2",
-        "cors": "^2.8.5",
-        "express": "^4.21.2",
-        "express-fileupload": "^1.5.1",
-        "fs": "^0.0.1-security",
-        "multer": "^1.4.5-lts.1",
-        "nodemon": "^3.1.9",
-        "patch": "^0.0.1",
-        "ws": "^8.18.1"
-    }
+  "type": "module",
+  "dependencies": {
+    "arduino-iot-js": "^0.14.1",
+    "axios": "^1.8.2",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "express-fileupload": "^1.5.1",
+    "fs": "^0.0.1-security",
+    "multer": "^1.4.5-lts.1",
+    "nodemon": "^3.1.9",
+    "patch": "^0.0.1",
+    "pm2": "^5.4.3",
+    "ws": "^8.18.1"
+  }
 }

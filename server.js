@@ -1,122 +1,154 @@
 const express = require('express');
 const multer = require('multer');
-const path = require('path');
 const fs = require('fs');
-const axios = require('axios');
-const FormData = require('form-data');
-const ip = require('ip');
-const mdns = require('mdns-js');
+const path = require('path');
+const https = require('https');
+const bodyParser = require('body-parser');
 
 const app = express();
 const port = 3000;
 
-// Configuración de multer para guardar los archivos
+// Configuración para usar SSL/TLS (importante para seguridad en conexiones remotas)
+const privateKey = fs.readFileSync('certs/private-key.pem', 'utf8');
+const certificate = fs.readFileSync('certs/certificate.pem', 'utf8');
+const credentials = { key: privateKey, cert: certificate };
+
+// Crear directorio para almacenar firmwares si no existe
+const firmwareDir = path.join(__dirname, 'firmware');
+if (!fs.existsSync(firmwareDir)) {
+  fs.mkdirSync(firmwareDir);
+}
+
+// Configurar almacenamiento para los archivos de firmware subidos
 const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, 'uploads/')
+  destination: function(req, file, cb) {
+    cb(null, firmwareDir);
   },
-  filename: function (req, file, cb) {
-    cb(null, 'firmware.bin')
+  filename: function(req, file, cb) {
+    const version = req.body.version || 'latest';
+    cb(null, `firmware-v${version}.bin`);
   }
 });
 
 const upload = multer({ storage: storage });
 
-// Asegurarse de que el directorio de uploads existe
-if (!fs.existsSync('uploads/')){
-  fs.mkdirSync('uploads/');
-}
+// Middleware para parsear JSON
+app.use(bodyParser.json());
 
-// Configuración de vistas
-app.set('view engine', 'ejs');
-app.set('views', path.join(__dirname, 'views'));
-app.use(express.static(path.join(__dirname, 'public')));
+// Base de datos simple para seguimiento de versiones (sustituir por MongoDB o similar en producción)
+let deviceVersions = {};
 
-// Lista para almacenar los dispositivos ESP32 encontrados
-let devices = [];
-
-// Función para buscar dispositivos ESP32 en la red local
-function findESP32Devices() {
-  console.log('Buscando dispositivos ESP32...');
+// Endpoint para subir nuevo firmware
+app.post('/upload-firmware', upload.single('firmware'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).send('No se subió ningún archivo');
+  }
   
-  // Crear un browser para buscar servicios mDNS
-  const browser = mdns.createBrowser(mdns.tcp('http'));
+  const version = req.body.version || 'unknown';
+  console.log(`Firmware versión ${version} subido correctamente`);
   
-  browser.on('ready', function () {
-    browser.discover();
-  });
+  // Actualizar la versión más reciente
+  fs.writeFileSync(path.join(firmwareDir, 'latest-version.txt'), version);
   
-  browser.on('update', function (service) {
-    // Filtrar dispositivos ESP32
-    if (service.name && service.name.includes('esp32')) {
-      const device = {
-        name: service.name,
-        host: service.host,
-        addresses: service.addresses,
-        port: service.port || 80
-      };
-      
-      // Comprobar si el dispositivo ya está en la lista
-      const exists = devices.some(d => d.host === device.host);
-      if (!exists) {
-        devices.push(device);
-        console.log('Nuevo dispositivo encontrado:', device.name);
-      }
-    }
-  });
-  
-  // Establecer un tiempo para detener la búsqueda
-  setTimeout(() => {
-    browser.stop();
-    console.log(`Búsqueda completada. ${devices.length} dispositivos encontrados.`);
-  }, 5000);
-}
-
-// Ruta principal
-app.get('/', (req, res) => {
-  res.render('index', { devices });
+  res.send(`Firmware v${version} subido correctamente`);
 });
 
-// Ruta para buscar dispositivos
-app.get('/scan', (req, res) => {
-  devices = []; // Limpiar la lista anterior
-  findESP32Devices();
-  res.redirect('/');
-});
-
-// Ruta para subir firmware manualmente
-app.post('/upload/:ip', upload.single('firmware'), async (req, res) => {
-  try {
-    const targetIP = req.params.ip;
-    const firmwarePath = path.join(__dirname, 'uploads/firmware.bin');
-    
-    console.log(`Enviando firmware a ESP32 en ${targetIP}...`);
-    
-    const form = new FormData();
-    form.append('update', fs.createReadStream(firmwarePath));
-    
-    const response = await axios.post(`http://${targetIP}/update`, form, {
-      headers: {
-        ...form.getHeaders(),
-      },
-      maxContentLength: Infinity,
-      maxBodyLength: Infinity
-    });
-    
-    console.log('Respuesta:', response.data);
-    res.send(`Actualización enviada a ${targetIP}. Respuesta: ${response.data}`);
-    
-  } catch (error) {
-    console.error('Error al enviar el firmware:', error.message);
-    res.status(500).send(`Error al enviar el firmware: ${error.message}`);
+// Endpoint para que los dispositivos verifiquen actualizaciones
+app.post('/check-update', (req, res) => {
+  const { deviceId, version } = req.body;
+  
+  if (!deviceId || version === undefined) {
+    return res.status(400).send('Falta información del dispositivo');
+  }
+  
+  // Registrar dispositivo
+  deviceVersions[deviceId] = version;
+  
+  // Verificar si hay una actualización disponible
+  const latestVersion = fs.existsSync(path.join(firmwareDir, 'latest-version.txt')) 
+    ? parseInt(fs.readFileSync(path.join(firmwareDir, 'latest-version.txt'), 'utf8')) 
+    : 0;
+  
+  console.log(`Dispositivo: ${deviceId}, Versión actual: ${version}, Versión más reciente: ${latestVersion}`);
+  
+  if (latestVersion > version) {
+    res.send('update-available');
+  } else {
+    res.send('up-to-date');
   }
 });
 
-// Iniciar el servidor
-app.listen(port, () => {
-  console.log(`Servidor iniciado en http://${ip.address()}:${port}`);
-  findESP32Devices(); // Buscar dispositivos al iniciar
+// Endpoint para enviar el firmware a los dispositivos
+app.get('/firmware', (req, res) => {
+  const deviceId = req.headers['device-id'];
+  const currentVersion = req.headers['current-version'];
+  
+  if (!deviceId) {
+    return res.status(400).send('Identificación de dispositivo requerida');
+  }
+  
+  console.log(`Solicitud de firmware del dispositivo: ${deviceId}, versión actual: ${currentVersion}`);
+  
+  // Obtener versión más reciente
+  const latestVersionFile = path.join(firmwareDir, 'latest-version.txt');
+  if (!fs.existsSync(latestVersionFile)) {
+    return res.status(404).send('No hay firmware disponible');
+  }
+  
+  const latestVersion = fs.readFileSync(latestVersionFile, 'utf8');
+  const firmwarePath = path.join(firmwareDir, `firmware-v${latestVersion}.bin`);
+  
+  if (!fs.existsSync(firmwarePath)) {
+    return res.status(404).send('Archivo de firmware no encontrado');
+  }
+  
+  // Enviar el firmware
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Disposition', `attachment; filename=firmware-v${latestVersion}.bin`);
+  
+  fs.createReadStream(firmwarePath).pipe(res);
 });
+
+// Interfaz web simple para administrar firmware
+app.get('/', (req, res) => {
+  let deviceList = '';
+  for (const [deviceId, version] of Object.entries(deviceVersions)) {
+    deviceList += `<li>${deviceId}: versión ${version}</li>`;
+  }
+  
+  res.send(`
+    <html>
+    <head><title>Sistema OTA ESP32</title></head>
+    <body>
+      <h1>Sistema de Actualización OTA para ESP32</h1>
+      
+      <h2>Subir nuevo firmware</h2>
+      <form action="/upload-firmware" method="post" enctype="multipart/form-data">
+        <label>Versión: <input type="number" name="version" required></label><br>
+        <label>Archivo: <input type="file" name="firmware" required></label><br>
+        <button type="submit">Subir</button>
+      </form>
+      
+      <h2>Dispositivos registrados</h2>
+      <ul>${deviceList || '<li>No hay dispositivos registrados</li>'}</ul>
+    </body>
+    </html>
+  `);
+});
+
+// Iniciar servidor HTTPS
+const httpsServer = https.createServer(credentials, app);
+httpsServer.listen(port, () => {
+  console.log(`Servidor OTA para ESP32 ejecutándose en puerto ${port}`);
+});
+
+// También es recomendable tener un redireccionamiento de HTTP a HTTPS
+const httpApp = express();
+httpApp.get('*', (req, res) => {
+  res.redirect(`https://${req.headers.host}${req.url}`);
+});
+httpApp.listen(80);
+
 // import express from 'express';
 // import fileUpload from 'express-fileupload';
 // import fs from 'fs';

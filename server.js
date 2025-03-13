@@ -3,7 +3,7 @@ const mqtt = require('mqtt');
 const brokerUrl = 'ad11f935a9c74146a4d2e647921bf024.s1.eu.hivemq.cloud';
 const topicOTA = 'esp32/ota';
 
-// URL del firmware (debe ser accesible públicamente)
+// URL del firmware (debe ser accesible por ESP32)
 const firmwareUrl = 'https://servidor-esp32.onrender.com/firmware.bin';
 
 const client = mqtt.connect(brokerUrl);
@@ -11,13 +11,30 @@ const client = mqtt.connect(brokerUrl);
 client.on('connect', () => {
   console.log('Conectado al broker MQTT');
   client.publish(topicOTA, firmwareUrl, (err) => {
-    if (!err) {
-      console.log(`URL del firmware enviada: ${firmwareUrl}`);
-    } else {
-      console.error('Error al enviar la URL OTA:', err);
-    }
+    if (!err) console.log(`URL del firmware enviada: ${firmwareUrl}`);
   });
 });
+
+// const mqtt = require('mqtt');
+
+// const brokerUrl = 'ad11f935a9c74146a4d2e647921bf024.s1.eu.hivemq.cloud';
+// const topicOTA = 'esp32/ota';
+
+// // URL del firmware (debe ser accesible públicamente)
+// const firmwareUrl = 'https://servidor-esp32.onrender.com/firmware.bin';
+
+// const client = mqtt.connect(brokerUrl);
+
+// client.on('connect', () => {
+//   console.log('Conectado al broker MQTT');
+//   client.publish(topicOTA, firmwareUrl, (err) => {
+//     if (!err) {
+//       console.log(`URL del firmware enviada: ${firmwareUrl}`);
+//     } else {
+//       console.error('Error al enviar la URL OTA:', err);
+//     }
+//   });
+// });
 
 // // Servidor Node.js para actualización OTA remota de ESP32 con EJS
 // const express = require('express');

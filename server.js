@@ -1,22 +1,221 @@
+// Servidor Node.js para actualización OTA remota de ESP32 con EJS
 const express = require('express');
+const mqtt = require('mqtt');
+const fs = require('fs');
 const path = require('path');
-const app = express();
-const port = 3000;
+const multer = require('multer');
+const bodyParser = require('body-parser');
 
-// Ruta para servir el firmware
-app.get('/firmware.bin', (req, res) => {
-  const filePath = path.join(__dirname, 'firmware.bin');
-  res.download(filePath, 'firmware.bin', (err) => {
-    if (err) {
-      console.error("Error enviando el firmware:", err);
-      res.status(500).send("Error interno");
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Configuración MQTT
+const MQTT_SERVER = 'mqtt://tu-broker-mqtt.com';
+const MQTT_OPTIONS = {
+  username: 'usuario_mqtt',
+  password: 'contraseña_mqtt',
+  clientId: 'node-ota-server'
+};
+
+// Configuración para subir archivos
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    cb(null, 'firmware.bin');
+  }
+});
+const upload = multer({ storage: storage });
+
+// Conexión al broker MQTT
+const mqttClient = mqtt.connect(MQTT_SERVER, MQTT_OPTIONS);
+
+// Estado de dispositivos y mensajes para mostrar en la interfaz
+let deviceStatus = {};
+let statusMessages = [];
+
+mqttClient.on('connect', () => {
+  console.log('Conectado al broker MQTT');
+  mqttClient.subscribe('esp32/status', (err) => {
+    if (!err) {
+      console.log('Suscrito al topic de estado');
     }
   });
 });
 
-app.listen(port, () => {
-  console.log(`Servidor de actualizaciones escuchando en http://localhost:${port}`);
+mqttClient.on('message', (topic, message) => {
+  const messageStr = message.toString();
+  console.log(`Mensaje recibido en ${topic}: ${messageStr}`);
+  
+  // Registrar los mensajes de estado para mostrarlos en la interfaz
+  statusMessages.unshift({
+    time: new Date().toLocaleTimeString(),
+    message: messageStr
+  });
+  
+  // Mantener solo los últimos 10 mensajes
+  if (statusMessages.length > 10) {
+    statusMessages = statusMessages.slice(0, 10);
+  }
+  
+  // Actualizar estado del dispositivo si se puede extraer
+  if (messageStr.includes(':')) {
+    const parts = messageStr.split(':');
+    const deviceId = parts[0].trim();
+    const status = parts[1].trim();
+    
+    deviceStatus[deviceId] = {
+      lastSeen: new Date(),
+      status: status
+    };
+  }
 });
+
+// Configuración del servidor Express
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.static('public'));
+
+// Configurar EJS como motor de plantillas
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
+
+// Asegurarse de que los directorios necesarios existen
+if (!fs.existsSync('uploads')) {
+  fs.mkdirSync('uploads');
+}
+if (!fs.existsSync('views')) {
+  fs.mkdirSync('views');
+}
+
+// Ruta principal - renderiza la plantilla EJS
+app.get('/', (req, res) => {
+  res.render('index', { 
+    deviceStatus: deviceStatus,
+    statusMessages: statusMessages
+  });
+});
+
+// Endpoint para subir firmware
+app.post('/upload', upload.single('firmware'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No se ha subido ningún archivo' });
+  }
+  
+  console.log('Firmware subido:', req.file.originalname);
+  
+  // Registrar la acción en los mensajes de estado
+  statusMessages.unshift({
+    time: new Date().toLocaleTimeString(),
+    message: `Firmware subido: ${req.file.originalname} (${req.file.size} bytes)`
+  });
+  
+  res.json({ success: true, message: 'Firmware subido correctamente' });
+});
+
+// Endpoint para iniciar actualización OTA
+app.post('/deploy/:deviceId', async (req, res) => {
+  const deviceId = req.params.deviceId;
+  const firmwarePath = path.join(__dirname, 'uploads', 'firmware.bin');
+  
+  try {
+    // Verificar si el archivo existe
+    if (!fs.existsSync(firmwarePath)) {
+      return res.status(404).json({ error: 'No se encuentra el firmware' });
+    }
+    
+    // Obtener el tamaño del firmware
+    const stats = fs.statSync(firmwarePath);
+    const fileSize = stats.size;
+    
+    // Enviar comando de inicio OTA con el tamaño del archivo
+    mqttClient.publish('esp32/ota', `START_OTA:${fileSize}`);
+    console.log(`Iniciando OTA para ${deviceId} con archivo de ${fileSize} bytes`);
+    
+    // Registrar la acción en los mensajes de estado
+    statusMessages.unshift({
+      time: new Date().toLocaleTimeString(),
+      message: `Iniciando actualización OTA para ${deviceId} (${fileSize} bytes)`
+    });
+    
+    // Leer el archivo y enviarlo en fragmentos
+    const CHUNK_SIZE = 1024; // 1KB por fragmento para no saturar la memoria del ESP32
+    const fileData = fs.readFileSync(firmwarePath);
+    
+    for (let i = 0; i < fileData.length; i += CHUNK_SIZE) {
+      const chunk = fileData.slice(i, i + CHUNK_SIZE);
+      await new Promise((resolve) => {
+        mqttClient.publish('esp32/ota', chunk, { qos: 1 }, () => {
+          // Pequeña pausa entre fragmentos para no saturar el ESP32
+          setTimeout(resolve, 50);
+        });
+      });
+      
+      // Calcular y mostrar progreso
+      const progress = Math.min(100, Math.round((i + CHUNK_SIZE) * 100 / fileSize));
+      
+      // Actualizar cada 10% para no saturar la consola
+      if (progress % 10 === 0) {
+        console.log(`Enviando firmware: ${progress}%`);
+      }
+    }
+    
+    // Registrar la finalización
+    statusMessages.unshift({
+      time: new Date().toLocaleTimeString(),
+      message: `Firmware enviado completamente a ${deviceId}`
+    });
+    
+    res.json({
+      success: true,
+      message: `Firmware enviado correctamente al dispositivo ${deviceId}`
+    });
+    
+  } catch (error) {
+    console.error('Error al enviar firmware:', error);
+    
+    // Registrar el error
+    statusMessages.unshift({
+      time: new Date().toLocaleTimeString(),
+      message: `ERROR: ${error.message}`
+    });
+    
+    res.status(500).json({ error: 'Error al enviar firmware' });
+  }
+});
+
+// Endpoint para obtener estado actual (para actualizaciones AJAX)
+app.get('/status', (req, res) => {
+  res.json({
+    deviceStatus: deviceStatus,
+    statusMessages: statusMessages
+  });
+});
+
+// Iniciar servidor
+app.listen(PORT, () => {
+  console.log(`Servidor OTA ejecutándose en http://localhost:${PORT}`);
+});
+// const express = require('express');
+// const path = require('path');
+// const app = express();
+// const port = 3000;
+
+// // Ruta para servir el firmware
+// app.get('/firmware.bin', (req, res) => {
+//   const filePath = path.join(__dirname, 'firmware.bin');
+//   res.download(filePath, 'firmware.bin', (err) => {
+//     if (err) {
+//       console.error("Error enviando el firmware:", err);
+//       res.status(500).send("Error interno");
+//     }
+//   });
+// });
+
+// app.listen(port, () => {
+//   console.log(`Servidor de actualizaciones escuchando en http://localhost:${port}`);
+// });
 
 // const express = require('express');
 // const multer = require('multer');

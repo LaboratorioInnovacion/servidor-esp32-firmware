@@ -1,0 +1,116 @@
+<!-- views/index.ejs -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP32 OTA Manager</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    h1 {
+      color: #333;
+    }
+    .device-card {
+      border: 1px solid #ddd;
+      padding: 15px;
+      margin-bottom: 15px;
+      border-radius: 5px;
+    }
+    .button {
+      background-color: #4CAF50;
+      border: none;
+      color: white;
+      padding: 10px 20px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 16px;
+      margin: 4px 2px;
+      cursor: pointer;
+      border-radius: 5px;
+    }
+    .scan-button {
+      background-color: #2196F3;
+    }
+    form {
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>ESP32 OTA Manager</h1>
+  
+  <a href="/scan" class="button scan-button">Escanear dispositivos</a>
+  
+  <h2>Dispositivos encontrados</h2>
+  
+  <% if (devices.length === 0) { %>
+    <p>No se han encontrado dispositivos ESP32. Haga clic en "Escanear dispositivos" para buscar.</p>
+  <% } else { %>
+    <% devices.forEach(function(device) { %>
+      <div class="device-card">
+        <h3><%= device.name %></h3>
+        <p><strong>Host:</strong> <%= device.host %></p>
+        <p><strong>IP:</strong> <%= device.addresses[0] %></p>
+        <p><strong>Puerto:</strong> <%= device.port %></p>
+        
+        <form action="/upload/<%= device.addresses[0] %>" method="post" enctype="multipart/form-data">
+          <p>
+            <input type="file" name="firmware" required>
+            <button type="submit" class="button">Actualizar firmware</button>
+          </p>
+        </form>
+      </div>
+    <% }); %>
+  <% } %>
+  
+  <h2>Actualización manual</h2>
+  <p>Si conoces la dirección IP de tu ESP32, puedes actualizar directamente:</p>
+  
+  <form id="manualForm" onsubmit="updateManually(event)">
+    <p>
+      <input type="text" id="manualIP" placeholder="Dirección IP" required>
+    </p>
+    <p>
+      <input type="file" id="manualFirmware" required>
+    </p>
+    <p>
+      <button type="submit" class="button">Actualizar manualmente</button>
+    </p>
+  </form>
+  
+  <script>
+    function updateManually(event) {
+      event.preventDefault();
+      
+      const ip = document.getElementById('manualIP').value;
+      const firmware = document.getElementById('manualFirmware').files[0];
+      
+      if (!ip || !firmware) {
+        alert('Por favor, complete todos los campos');
+        return;
+      }
+      
+      const formData = new FormData();
+      formData.append('firmware', firmware);
+      
+      fetch(`/upload/${ip}`, {
+        method: 'POST',
+        body: formData
+      })
+      .then(response => response.text())
+      .then(data => {
+        alert(data);
+      })
+      .catch(error => {
+        alert('Error: ' + error);
+      });
+    }
+  </script>
+</body>
+</html>

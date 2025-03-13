@@ -1,139 +1,258 @@
-import express from 'express';
-import fileUpload from 'express-fileupload';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-// Configuración para obtener __dirname en ESM
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const express = require('express');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+const axios = require('axios');
+const FormData = require('form-data');
+const ip = require('ip');
+const mdns = require('mdns-js');
 
 const app = express();
-const port = process.env.PORT || 3000; // Usar el puerto proporcionado por Render o 3000 como fallback
+const port = 3000;
 
-// Middleware para parsear JSON y manejar archivos
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(fileUpload({
-  createParentPath: true
-}));
-
-// Directorio para almacenar firmware
-const firmwareDir = path.join(__dirname, 'firmware');
-if (!fs.existsSync(firmwareDir)) {
-  fs.mkdirSync(firmwareDir, { recursive: true });
-}
-
-// Configuración de versión actual
-let currentVersion = "1.0.0";
-const versionFilePath = path.join(firmwareDir, 'version.txt');
-const firmwareFilePath = path.join(firmwareDir, 'firmware.bin');
-
-// Cargar versión si existe
-if (fs.existsSync(versionFilePath)) {
-  currentVersion = fs.readFileSync(versionFilePath, 'utf8').trim();
-}
-
-// Endpoint para obtener la versión actual
-app.get('/firmware/version', (req, res) => {
-  res.send(currentVersion);
-  console.log(`Versión solicitada: ${currentVersion}`);
-});
-
-// Endpoint para descargar la imagen del firmware
-app.get('/firmware/image', (req, res) => {
-  if (fs.existsSync(firmwareFilePath)) {
-    console.log('Firmware solicitado');
-    res.download(firmwareFilePath);
-  } else {
-    res.status(404).send('Firmware no encontrado');
+// Configuración de multer para guardar los archivos
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, 'uploads/')
+  },
+  filename: function (req, file, cb) {
+    cb(null, 'firmware.bin')
   }
 });
 
-// Dashboard para administración
+const upload = multer({ storage: storage });
+
+// Asegurarse de que el directorio de uploads existe
+if (!fs.existsSync('uploads/')){
+  fs.mkdirSync('uploads/');
+}
+
+// Configuración de vistas
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Lista para almacenar los dispositivos ESP32 encontrados
+let devices = [];
+
+// Función para buscar dispositivos ESP32 en la red local
+function findESP32Devices() {
+  console.log('Buscando dispositivos ESP32...');
+  
+  // Crear un browser para buscar servicios mDNS
+  const browser = mdns.createBrowser(mdns.tcp('http'));
+  
+  browser.on('ready', function () {
+    browser.discover();
+  });
+  
+  browser.on('update', function (service) {
+    // Filtrar dispositivos ESP32
+    if (service.name && service.name.includes('esp32')) {
+      const device = {
+        name: service.name,
+        host: service.host,
+        addresses: service.addresses,
+        port: service.port || 80
+      };
+      
+      // Comprobar si el dispositivo ya está en la lista
+      const exists = devices.some(d => d.host === device.host);
+      if (!exists) {
+        devices.push(device);
+        console.log('Nuevo dispositivo encontrado:', device.name);
+      }
+    }
+  });
+  
+  // Establecer un tiempo para detener la búsqueda
+  setTimeout(() => {
+    browser.stop();
+    console.log(`Búsqueda completada. ${devices.length} dispositivos encontrados.`);
+  }, 5000);
+}
+
+// Ruta principal
 app.get('/', (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>ESP32 OTA Server</title>
-      <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-        h1 { color: #333; }
-        .form { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
-        label { display: block; margin-bottom: 10px; }
-        input { margin-bottom: 15px; }
-        button { background: #4CAF50; color: white; padding: 10px 15px; border: none; cursor: pointer; }
-        .info { background: #f9f9f9; padding: 15px; border-radius: 5px; }
-      </style>
-    </head>
-    <body>
-      <h1>ESP32 OTA Update Server</h1>
-      
-      <div class="info">
-        <h2>Versión actual: ${currentVersion}</h2>
-        <p>Firmware: ${fs.existsSync(firmwareFilePath) ? 'Disponible' : 'No disponible'}</p>
-      </div>
-      
-      <div class="form">
-        <h2>Actualizar versión</h2>
-        <form action="/update-version" method="post">
-          <label>Nueva versión:</label>
-          <input type="text" name="version" required value="${currentVersion}">
-          <button type="submit">Actualizar versión</button>
-        </form>
-      </div>
-      
-      <div class="form">
-        <h2>Subir nuevo firmware</h2>
-        <form action="/upload-firmware" method="post" enctype="multipart/form-data">
-          <label>Archivo de firmware (.bin):</label>
-          <input type="file" name="firmware" accept=".bin" required>
-          <button type="submit">Subir firmware</button>
-        </form>
-      </div>
-    </body>
-    </html>
-  `);
+  res.render('index', { devices });
 });
 
-// Endpoint para actualizar la versión
-app.post('/update-version', (req, res) => {
-  const { version } = req.body;
-  if (!version) {
-    return res.status(400).send('Versión no especificada');
-  }
-  
-  fs.writeFileSync(versionFilePath, version);
-  currentVersion = version;
-  console.log(`Versión actualizada a: ${version}`);
-  
+// Ruta para buscar dispositivos
+app.get('/scan', (req, res) => {
+  devices = []; // Limpiar la lista anterior
+  findESP32Devices();
   res.redirect('/');
 });
 
-// Endpoint para subir firmware
-app.post('/upload-firmware', (req, res) => {
-  if (!req.files || !req.files.firmware) {
-    return res.status(400).send('No se ha subido ningún archivo');
-  }
-  
-  const firmwareFile = req.files.firmware;
-  
-  // Guardar archivo
-  firmwareFile.mv(firmwareFilePath, (err) => {
-    if (err) {
-      return res.status(500).send(err);
-    }
+// Ruta para subir firmware manualmente
+app.post('/upload/:ip', upload.single('firmware'), async (req, res) => {
+  try {
+    const targetIP = req.params.ip;
+    const firmwarePath = path.join(__dirname, 'uploads/firmware.bin');
     
-    console.log(`Firmware actualizado: ${firmwareFile.name}`);
-    res.redirect('/');
-  });
+    console.log(`Enviando firmware a ESP32 en ${targetIP}...`);
+    
+    const form = new FormData();
+    form.append('update', fs.createReadStream(firmwarePath));
+    
+    const response = await axios.post(`http://${targetIP}/update`, form, {
+      headers: {
+        ...form.getHeaders(),
+      },
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity
+    });
+    
+    console.log('Respuesta:', response.data);
+    res.send(`Actualización enviada a ${targetIP}. Respuesta: ${response.data}`);
+    
+  } catch (error) {
+    console.error('Error al enviar el firmware:', error.message);
+    res.status(500).send(`Error al enviar el firmware: ${error.message}`);
+  }
 });
 
-// Iniciar servidor
+// Iniciar el servidor
 app.listen(port, () => {
-  console.log(`Servidor OTA ejecutándose en puerto ${port}`);
+  console.log(`Servidor iniciado en http://${ip.address()}:${port}`);
+  findESP32Devices(); // Buscar dispositivos al iniciar
 });
+// import express from 'express';
+// import fileUpload from 'express-fileupload';
+// import fs from 'fs';
+// import path from 'path';
+// import { fileURLToPath } from 'url';
+
+// // Configuración para obtener __dirname en ESM
+// const __filename = fileURLToPath(import.meta.url);
+// const __dirname = path.dirname(__filename);
+
+// const app = express();
+// const port = process.env.PORT || 3000; // Usar el puerto proporcionado por Render o 3000 como fallback
+
+// // Middleware para parsear JSON y manejar archivos
+// app.use(express.json());
+// app.use(express.urlencoded({ extended: true }));
+// app.use(fileUpload({
+//   createParentPath: true
+// }));
+
+// // Directorio para almacenar firmware
+// const firmwareDir = path.join(__dirname, 'firmware');
+// if (!fs.existsSync(firmwareDir)) {
+//   fs.mkdirSync(firmwareDir, { recursive: true });
+// }
+
+// // Configuración de versión actual
+// let currentVersion = "1.0.0";
+// const versionFilePath = path.join(firmwareDir, 'version.txt');
+// const firmwareFilePath = path.join(firmwareDir, 'firmware.bin');
+
+// // Cargar versión si existe
+// if (fs.existsSync(versionFilePath)) {
+//   currentVersion = fs.readFileSync(versionFilePath, 'utf8').trim();
+// }
+
+// // Endpoint para obtener la versión actual
+// app.get('/firmware/version', (req, res) => {
+//   res.send(currentVersion);
+//   console.log(`Versión solicitada: ${currentVersion}`);
+// });
+
+// // Endpoint para descargar la imagen del firmware
+// app.get('/firmware/image', (req, res) => {
+//   if (fs.existsSync(firmwareFilePath)) {
+//     console.log('Firmware solicitado');
+//     res.download(firmwareFilePath);
+//   } else {
+//     res.status(404).send('Firmware no encontrado');
+//   }
+// });
+
+// // Dashboard para administración
+// app.get('/', (req, res) => {
+//   res.send(`
+//     <!DOCTYPE html>
+//     <html>
+//     <head>
+//       <title>ESP32 OTA Server</title>
+//       <style>
+//         body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+//         h1 { color: #333; }
+//         .form { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+//         label { display: block; margin-bottom: 10px; }
+//         input { margin-bottom: 15px; }
+//         button { background: #4CAF50; color: white; padding: 10px 15px; border: none; cursor: pointer; }
+//         .info { background: #f9f9f9; padding: 15px; border-radius: 5px; }
+//       </style>
+//     </head>
+//     <body>
+//       <h1>ESP32 OTA Update Server</h1>
+      
+//       <div class="info">
+//         <h2>Versión actual: ${currentVersion}</h2>
+//         <p>Firmware: ${fs.existsSync(firmwareFilePath) ? 'Disponible' : 'No disponible'}</p>
+//       </div>
+      
+//       <div class="form">
+//         <h2>Actualizar versión</h2>
+//         <form action="/update-version" method="post">
+//           <label>Nueva versión:</label>
+//           <input type="text" name="version" required value="${currentVersion}">
+//           <button type="submit">Actualizar versión</button>
+//         </form>
+//       </div>
+      
+//       <div class="form">
+//         <h2>Subir nuevo firmware</h2>
+//         <form action="/upload-firmware" method="post" enctype="multipart/form-data">
+//           <label>Archivo de firmware (.bin):</label>
+//           <input type="file" name="firmware" accept=".bin" required>
+//           <button type="submit">Subir firmware</button>
+//         </form>
+//       </div>
+//     </body>
+//     </html>
+//   `);
+// });
+
+// // Endpoint para actualizar la versión
+// app.post('/update-version', (req, res) => {
+//   const { version } = req.body;
+//   if (!version) {
+//     return res.status(400).send('Versión no especificada');
+//   }
+  
+//   fs.writeFileSync(versionFilePath, version);
+//   currentVersion = version;
+//   console.log(`Versión actualizada a: ${version}`);
+  
+//   res.redirect('/');
+// });
+
+// // Endpoint para subir firmware
+// app.post('/upload-firmware', (req, res) => {
+//   if (!req.files || !req.files.firmware) {
+//     return res.status(400).send('No se ha subido ningún archivo');
+//   }
+  
+//   const firmwareFile = req.files.firmware;
+  
+//   // Guardar archivo
+//   firmwareFile.mv(firmwareFilePath, (err) => {
+//     if (err) {
+//       return res.status(500).send(err);
+//     }
+    
+//     console.log(`Firmware actualizado: ${firmwareFile.name}`);
+//     res.redirect('/');
+//   });
+// });
+
+// // Iniciar servidor
+// app.listen(port, () => {
+//   console.log(`Servidor OTA ejecutándose en puerto ${port}`);
+// });
 // import express from 'express';
 // import fileUpload from 'express-fileupload';
 // import fs from 'fs';

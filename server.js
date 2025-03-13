@@ -1,139 +1,159 @@
 const express = require('express');
-const multer = require('multer');
-const fs = require('fs');
 const path = require('path');
-const bodyParser = require('body-parser');
-
 const app = express();
 const port = 3000;
 
-// Crear directorio para almacenar firmwares si no existe
-const firmwareDir = path.join(__dirname, 'firmware');
-if (!fs.existsSync(firmwareDir)) {
-  fs.mkdirSync(firmwareDir);
-}
-
-// Configurar almacenamiento para los archivos de firmware subidos
-const storage = multer.diskStorage({
-  destination: function(req, file, cb) {
-    cb(null, firmwareDir);
-  },
-  filename: function(req, file, cb) {
-    const version = req.body.version || 'latest';
-    cb(null, `firmware-v${version}.bin`);
-  }
+// Ruta para servir el firmware
+app.get('/firmware.bin', (req, res) => {
+  const filePath = path.join(__dirname, 'firmware.bin');
+  res.download(filePath, 'firmware.bin', (err) => {
+    if (err) {
+      console.error("Error enviando el firmware:", err);
+      res.status(500).send("Error interno");
+    }
+  });
 });
 
-const upload = multer({ storage: storage });
-
-// Middleware para parsear JSON
-app.use(bodyParser.json());
-
-// Base de datos simple para seguimiento de versiones
-let deviceVersions = {};
-
-// Endpoint para subir nuevo firmware
-app.post('/upload-firmware', upload.single('firmware'), (req, res) => {
-  if (!req.file) {
-    return res.status(400).send('No se subió ningún archivo');
-  }
-  
-  const version = req.body.version || 'unknown';
-  console.log(`Firmware versión ${version} subido correctamente`);
-  
-  // Actualizar la versión más reciente
-  fs.writeFileSync(path.join(firmwareDir, 'latest-version.txt'), version);
-  
-  res.send(`Firmware v${version} subido correctamente`);
-});
-
-// Endpoint para que los dispositivos verifiquen actualizaciones
-app.post('/check-update', (req, res) => {
-  const { deviceId, version } = req.body;
-  
-  if (!deviceId || version === undefined) {
-    return res.status(400).send('Falta información del dispositivo');
-  }
-  
-  // Registrar dispositivo
-  deviceVersions[deviceId] = version;
-  
-  // Verificar si hay una actualización disponible
-  const latestVersion = fs.existsSync(path.join(firmwareDir, 'latest-version.txt')) 
-    ? parseInt(fs.readFileSync(path.join(firmwareDir, 'latest-version.txt'), 'utf8')) 
-    : 0;
-  
-  console.log(`Dispositivo: ${deviceId}, Versión actual: ${version}, Versión más reciente: ${latestVersion}`);
-  
-  if (latestVersion > version) {
-    res.send('update-available');
-  } else {
-    res.send('up-to-date');
-  }
-});
-
-// Endpoint para enviar el firmware a los dispositivos
-app.get('/firmware', (req, res) => {
-  const deviceId = req.headers['device-id'];
-  const currentVersion = req.headers['current-version'];
-  
-  if (!deviceId) {
-    return res.status(400).send('Identificación de dispositivo requerida');
-  }
-  
-  console.log(`Solicitud de firmware del dispositivo: ${deviceId}, versión actual: ${currentVersion}`);
-  
-  // Obtener versión más reciente
-  const latestVersionFile = path.join(firmwareDir, 'latest-version.txt');
-  if (!fs.existsSync(latestVersionFile)) {
-    return res.status(404).send('No hay firmware disponible');
-  }
-  
-  const latestVersion = fs.readFileSync(latestVersionFile, 'utf8');
-  const firmwarePath = path.join(firmwareDir, `firmware-v${latestVersion}.bin`);
-  
-  if (!fs.existsSync(firmwarePath)) {
-    return res.status(404).send('Archivo de firmware no encontrado');
-  }
-  
-  // Enviar el firmware
-  res.setHeader('Content-Type', 'application/octet-stream');
-  res.setHeader('Content-Disposition', `attachment; filename=firmware-v${latestVersion}.bin`);
-  
-  fs.createReadStream(firmwarePath).pipe(res);
-});
-
-// Interfaz web simple para administrar firmware
-app.get('/', (req, res) => {
-  let deviceList = '';
-  for (const [deviceId, version] of Object.entries(deviceVersions)) {
-    deviceList += `<li>${deviceId}: versión ${version}</li>`;
-  }
-  
-  res.send(`
-    <html>
-    <head><title>Sistema OTA ESP32</title></head>
-    <body>
-      <h1>Sistema de Actualización OTA para ESP32</h1>
-      
-      <h2>Subir nuevo firmware</h2>
-      <form action="/upload-firmware" method="post" enctype="multipart/form-data">
-        <label>Versión: <input type="number" name="version" required></label><br>
-        <label>Archivo: <input type="file" name="firmware" required></label><br>
-        <button type="submit">Subir</button>
-      </form>
-      
-      <h2>Dispositivos registrados</h2>
-      <ul>${deviceList || '<li>No hay dispositivos registrados</li>'}</ul>
-    </body>
-    </html>
-  `);
-});
-
-// Iniciar servidor HTTP
 app.listen(port, () => {
-  console.log(`Servidor OTA para ESP32 ejecutándose en puerto ${port}`);
+  console.log(`Servidor de actualizaciones escuchando en http://localhost:${port}`);
 });
+
+// const express = require('express');
+// const multer = require('multer');
+// const fs = require('fs');
+// const path = require('path');
+// const bodyParser = require('body-parser');
+
+// const app = express();
+// const port = 3000;
+
+// // Crear directorio para almacenar firmwares si no existe
+// const firmwareDir = path.join(__dirname, 'firmware');
+// if (!fs.existsSync(firmwareDir)) {
+//   fs.mkdirSync(firmwareDir);
+// }
+
+// // Configurar almacenamiento para los archivos de firmware subidos
+// const storage = multer.diskStorage({
+//   destination: function(req, file, cb) {
+//     cb(null, firmwareDir);
+//   },
+//   filename: function(req, file, cb) {
+//     const version = req.body.version || 'latest';
+//     cb(null, `firmware-v${version}.bin`);
+//   }
+// });
+
+// const upload = multer({ storage: storage });
+
+// // Middleware para parsear JSON
+// app.use(bodyParser.json());
+
+// // Base de datos simple para seguimiento de versiones
+// let deviceVersions = {};
+
+// // Endpoint para subir nuevo firmware
+// app.post('/upload-firmware', upload.single('firmware'), (req, res) => {
+//   if (!req.file) {
+//     return res.status(400).send('No se subió ningún archivo');
+//   }
+  
+//   const version = req.body.version || 'unknown';
+//   console.log(`Firmware versión ${version} subido correctamente`);
+  
+//   // Actualizar la versión más reciente
+//   fs.writeFileSync(path.join(firmwareDir, 'latest-version.txt'), version);
+  
+//   res.send(`Firmware v${version} subido correctamente`);
+// });
+
+// // Endpoint para que los dispositivos verifiquen actualizaciones
+// app.post('/check-update', (req, res) => {
+//   const { deviceId, version } = req.body;
+  
+//   if (!deviceId || version === undefined) {
+//     return res.status(400).send('Falta información del dispositivo');
+//   }
+  
+//   // Registrar dispositivo
+//   deviceVersions[deviceId] = version;
+  
+//   // Verificar si hay una actualización disponible
+//   const latestVersion = fs.existsSync(path.join(firmwareDir, 'latest-version.txt')) 
+//     ? parseInt(fs.readFileSync(path.join(firmwareDir, 'latest-version.txt'), 'utf8')) 
+//     : 0;
+  
+//   console.log(`Dispositivo: ${deviceId}, Versión actual: ${version}, Versión más reciente: ${latestVersion}`);
+  
+//   if (latestVersion > version) {
+//     res.send('update-available');
+//   } else {
+//     res.send('up-to-date');
+//   }
+// });
+
+// // Endpoint para enviar el firmware a los dispositivos
+// app.get('/firmware', (req, res) => {
+//   const deviceId = req.headers['device-id'];
+//   const currentVersion = req.headers['current-version'];
+  
+//   if (!deviceId) {
+//     return res.status(400).send('Identificación de dispositivo requerida');
+//   }
+  
+//   console.log(`Solicitud de firmware del dispositivo: ${deviceId}, versión actual: ${currentVersion}`);
+  
+//   // Obtener versión más reciente
+//   const latestVersionFile = path.join(firmwareDir, 'latest-version.txt');
+//   if (!fs.existsSync(latestVersionFile)) {
+//     return res.status(404).send('No hay firmware disponible');
+//   }
+  
+//   const latestVersion = fs.readFileSync(latestVersionFile, 'utf8');
+//   const firmwarePath = path.join(firmwareDir, `firmware-v${latestVersion}.bin`);
+  
+//   if (!fs.existsSync(firmwarePath)) {
+//     return res.status(404).send('Archivo de firmware no encontrado');
+//   }
+  
+//   // Enviar el firmware
+//   res.setHeader('Content-Type', 'application/octet-stream');
+//   res.setHeader('Content-Disposition', `attachment; filename=firmware-v${latestVersion}.bin`);
+  
+//   fs.createReadStream(firmwarePath).pipe(res);
+// });
+
+// // Interfaz web simple para administrar firmware
+// app.get('/', (req, res) => {
+//   let deviceList = '';
+//   for (const [deviceId, version] of Object.entries(deviceVersions)) {
+//     deviceList += `<li>${deviceId}: versión ${version}</li>`;
+//   }
+  
+//   res.send(`
+//     <html>
+//     <head><title>Sistema OTA ESP32</title></head>
+//     <body>
+//       <h1>Sistema de Actualización OTA para ESP32</h1>
+      
+//       <h2>Subir nuevo firmware</h2>
+//       <form action="/upload-firmware" method="post" enctype="multipart/form-data">
+//         <label>Versión: <input type="number" name="version" required></label><br>
+//         <label>Archivo: <input type="file" name="firmware" required></label><br>
+//         <button type="submit">Subir</button>
+//       </form>
+      
+//       <h2>Dispositivos registrados</h2>
+//       <ul>${deviceList || '<li>No hay dispositivos registrados</li>'}</ul>
+//     </body>
+//     </html>
+//   `);
+// });
+
+// // Iniciar servidor HTTP
+// app.listen(port, () => {
+//   console.log(`Servidor OTA para ESP32 ejecutándose en puerto ${port}`);
+// });
 // import express from 'express';
 // import fileUpload from 'express-fileupload';
 // import fs from 'fs';

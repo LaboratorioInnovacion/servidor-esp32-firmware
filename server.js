@@ -12,9 +12,9 @@ const PORT = process.env.PORT || 3000;
 // Configuración MQTT
 const MQTT_SERVER = 'mqtt://tu-broker-mqtt.com';
 const MQTT_OPTIONS = {
-  username: 'usuario_mqtt',
-  password: 'contraseña_mqtt',
-  clientId: 'node-ota-server'
+  username: 'psiconervio',
+  password: 'Psiconervio1',
+  clientId: 'ad11f935a9c74146a4d2e647921bf024.s1.eu.hivemq.cloud'
 };
 
 // Configuración para subir archivos

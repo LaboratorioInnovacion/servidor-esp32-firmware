@@ -14,7 +14,7 @@ const MQTT_SERVER = 'ad11f935a9c74146a4d2e647921bf024.s1.eu.hivemq.cloud';
 const MQTT_OPTIONS = {
   username: 'psiconervio',
   password: 'Psiconervio1',
-  clientId: 'https://servidor-esp32.onrender.com'
+  clientId: '65535'
 };
 
 // Configuración para subir archivos

@@ -2,16 +2,10 @@ const express = require('express');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
-const https = require('https');
 const bodyParser = require('body-parser');
 
 const app = express();
 const port = 3000;
-
-// Configuración para usar SSL/TLS (importante para seguridad en conexiones remotas)
-const privateKey = fs.readFileSync('certs/private-key.pem', 'utf8');
-const certificate = fs.readFileSync('certs/certificate.pem', 'utf8');
-const credentials = { key: privateKey, cert: certificate };
 
 // Crear directorio para almacenar firmwares si no existe
 const firmwareDir = path.join(__dirname, 'firmware');
@@ -35,7 +29,7 @@ const upload = multer({ storage: storage });
 // Middleware para parsear JSON
 app.use(bodyParser.json());
 
-// Base de datos simple para seguimiento de versiones (sustituir por MongoDB o similar en producción)
+// Base de datos simple para seguimiento de versiones
 let deviceVersions = {};
 
 // Endpoint para subir nuevo firmware
@@ -136,19 +130,10 @@ app.get('/', (req, res) => {
   `);
 });
 
-// Iniciar servidor HTTPS
-const httpsServer = https.createServer(credentials, app);
-httpsServer.listen(port, () => {
+// Iniciar servidor HTTP
+app.listen(port, () => {
   console.log(`Servidor OTA para ESP32 ejecutándose en puerto ${port}`);
 });
-
-// También es recomendable tener un redireccionamiento de HTTP a HTTPS
-const httpApp = express();
-httpApp.get('*', (req, res) => {
-  res.redirect(`https://${req.headers.host}${req.url}`);
-});
-httpApp.listen(80);
-
 // import express from 'express';
 // import fileUpload from 'express-fileupload';
 // import fs from 'fs';

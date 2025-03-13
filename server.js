@@ -1,18 +1,83 @@
-const mqtt = require('mqtt');
+const express = require('express');
+const fs = require('fs');
+const crypto = require('crypto');
+const app = express();
+const port = 3000;
 
-const brokerUrl = 'ad11f935a9c74146a4d2e647921bf024.s1.eu.hivemq.cloud';
-const topicOTA = 'esp32/ota';
+// Middleware
+app.use(express.json({ limit: '50mb' }));
 
-// URL del firmware (debe ser accesible por ESP32)
-const firmwareUrl = 'https://servidor-esp32.onrender.com/firmware.bin';
+// Almacenamiento
+const FIRMWARE_DIR = './firmware';
+let currentVersion = '1.0.0';
 
-const client = mqtt.connect(brokerUrl);
+// Endpoint: Obtener versión actual
+app.get('/version.txt', (req, res) => {
+  res.sendFile(`${FIRMWARE_DIR}/version.txt`, { root: __dirname });
+});
 
-client.on('connect', () => {
-  console.log('Conectado al broker MQTT');
-  client.publish(topicOTA, firmwareUrl, (err) => {
-    if (!err) console.log(`URL del firmware enviada: ${firmwareUrl}`);
+// Endpoint: Descargar firmware
+app.get('/firmware.bin', (req, res) => {
+  res.sendFile(`${FIRMWARE_DIR}/firmware.bin`, {
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'x-Firmware-Version': currentVersion
+    }
   });
+});
+
+// Endpoint: Subir nuevo firmware (protegido)
+app.post('/upload', (req, res) => {
+  // 1. Autenticación básica
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).send('Acceso no autorizado');
+  }
+
+  // 2. Verificar token
+  const validToken = 'tu_token_secreto';
+  if (authHeader.split(' ')[1] !== validToken) {
+    return res.status(403).send('Token inválido');
+  }
+
+  // 3. Validar datos
+  const { version, firmware } = req.body;
+  if (!version || !firmware) {
+    return res.status(400).send('Datos incompletos');
+  }
+
+  // 4. Convertir base64 a binario
+  const binaryData = Buffer.from(firmware, 'base64');
+  
+  // 5. Calcular checksum
+  const hash = crypto.createHash('sha256');
+  hash.update(binaryData);
+  const checksum = hash.digest('hex');
+
+  // 6. Guardar archivos
+  try {
+    fs.writeFileSync(`${FIRMWARE_DIR}/firmware.bin`, binaryData);
+    fs.writeFileSync(`${FIRMWARE_DIR}/version.txt`, version);
+    fs.writeFileSync(`${FIRMWARE_DIR}/checksum.txt`, checksum);
+    
+    currentVersion = version;
+    res.status(200).json({
+      success: true,
+      version,
+      checksum
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('Error al guardar firmware');
+  }
+});
+
+// Iniciar servidor
+app.listen(port, () => {
+  console.log(`Servidor OTA escuchando en http://localhost:${port}`);
+  if (!fs.existsSync(FIRMWARE_DIR)) {
+    fs.mkdirSync(FIRMWARE_DIR);
+  }
 });
 
 // const mqtt = require('mqtt');

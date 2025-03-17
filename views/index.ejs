@@ -1,21 +1,15 @@
 <!DOCTYPE html>
 <html>
-<head>
-    <title>Actualización OTA ESP32</title>
-    <style>
-        .container { max-width: 600px; margin: 50px auto; padding: 20px; }
-        form { border: 1px solid #ccc; padding: 20px; border-radius: 5px; }
-        input[type="file"] { margin: 10px 0; }
-        button { background: #4CAF50; color: white; padding: 10px 20px; border: none; cursor: pointer; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Actualizar Firmware ESP32</h1>
-        <form action="/upload" method="post" enctype="multipart/form-data">
-            <input type="file" name="firmware" accept=".bin" required>
-            <button type="submit">Subir y Actualizar</button>
-        </form>
-    </div>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <title>ESP32 Remote Update</title>
+  </head>
+  <body>
+    <h1>Enviar mensaje al ESP32</h1>
+    <form action="/update" method="POST">
+      <textarea name="code" rows="10" cols="50" placeholder="Escribe tu código o URL de OTA aquí"></textarea>
+      <br><br>
+      <button type="submit">Enviar</button>
+    </form>
+  </body>
 </html>

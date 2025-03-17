@@ -1,138 +1,61 @@
 const express = require('express');
+const bodyParser = require('body-parser');
 const mqtt = require('mqtt');
-const multer = require('multer');
 const path = require('path');
+
 const app = express();
 
-// Configuración MQTT
-const mqttBroker = 'mqtt://broker.hivemq.com';
-const mqttTopic = 'esp32/ota/update';
-const mqttClient = mqtt.connect(mqttBroker);
-
-// Configuración Multer para subir archivos
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'public/firmware/');
-  },
-  filename: (req, file, cb) => {
-    cb(null, 'firmware.bin');
-  }
-});
-
-const upload = multer({ storage: storage });
-
-// Configuración Express
+// Configurar EJS como motor de vistas
 app.set('view engine', 'ejs');
-app.use(express.static('public'));
+app.set('views', path.join(__dirname, 'views'));
 
-// Ruta principal
-app.get('/', (req, res) => {
-  res.render('index');
+// Parseo de formularios
+app.use(bodyParser.urlencoded({ extended: false }));
+
+// --- Credenciales de HiveMQ Cloud (Reemplaza con las tuyas) ---
+const options = {
+  host: 'ad11953c9a74146a4a26e47921b1f024.s1.eu.hivemq.cloud', // Broker
+  port: 8883,            // Puerto TLS
+  protocol: 'mqtts',     // Protocolo seguro
+  username: 'TU_USUARIO',// <--- Reemplaza con tu usuario
+  password: 'TU_PASSWORD'// <--- Reemplaza con tu contraseña
+};
+
+// Conexión MQTT
+const client = mqtt.connect(options);
+
+client.on('connect', () => {
+  console.log('Conectado al broker MQTT de HiveMQ Cloud');
 });
 
-// Subir firmware
-app.post('/upload', upload.single('firmware'), (req, res) => {
-  const firmwareUrl = `http://${req.headers.host}/firmware/firmware.bin`;
-  
-  mqttClient.publish(mqttTopic, firmwareUrl, (err) => {
-    if(err) {
-      return res.status(500).send('Error al enviar firmware');
+client.on('error', (err) => {
+  console.error('Error en la conexión MQTT:', err);
+});
+
+// Ruta principal: Renderiza el formulario EJS
+app.get('/', (req, res) => {
+  res.render('index'); // Renderiza views/index.ejs
+});
+
+// Ruta para recibir el “código” (o URL de OTA) y publicarlo en MQTT
+app.post('/update', (req, res) => {
+  const code = req.body.code;  // Nombre del campo <textarea name="code">
+  // Publicamos el “código” en el tópico "esp32/update"
+  client.publish('esp32/update', code, { qos: 0 }, (error) => {
+    if (error) {
+      console.error('Error publicando el mensaje:', error);
+      return res.send('Hubo un error al enviar el mensaje al ESP32.');
     }
-    res.send('Firmware subido y notificación enviada al ESP32');
+    console.log('Mensaje publicado en esp32/update:', code);
+    res.send('Mensaje enviado al ESP32 correctamente.');
   });
 });
 
-// Iniciar servidor
-const PORT = 3000;
-app.listen(PORT, () => {
-  console.log(`Servidor en http://localhost:${PORT}`);
-  // Iniciar servidor de archivos estáticos
-  require('http-server').createServer({
-    root: path.join(__dirname, 'public'),
-    cors: true
-  }).listen(8080);
+// Iniciar el servidor en el puerto 3000
+app.listen(3000, () => {
+  console.log('Servidor corriendo en http://localhost:3000');
 });
-// const express = require('express');
-// const fs = require('fs');
-// const crypto = require('crypto');
-// const app = express();
-// const port = 3000;
 
-// // Middleware
-// app.use(express.json({ limit: '50mb' }));
-
-// // Almacenamiento
-// const FIRMWARE_DIR = './firmware';
-// let currentVersion = '1.0.0';
-
-// // Endpoint: Obtener versión actual
-// app.get('/version.txt', (req, res) => {
-//   res.sendFile(`${FIRMWARE_DIR}/version.txt`, { root: __dirname });
-// });
-
-// // Endpoint: Descargar firmware
-// app.get('/firmware.bin', (req, res) => {
-//   res.sendFile(`${FIRMWARE_DIR}/firmware.bin`, {
-//     headers: {
-//       'Content-Type': 'application/octet-stream',
-//       'x-Firmware-Version': currentVersion
-//     }
-//   });
-// });
-
-// // Endpoint: Subir nuevo firmware (protegido)
-// app.post('/upload', (req, res) => {
-//   // 1. Autenticación básica
-//   const authHeader = req.headers['authorization'];
-//   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-//     return res.status(401).send('Acceso no autorizado');
-//   }
-
-//   // 2. Verificar token
-//   const validToken = 'tu_token_secreto';
-//   if (authHeader.split(' ')[1] !== validToken) {
-//     return res.status(403).send('Token inválido');
-//   }
-
-//   // 3. Validar datos
-//   const { version, firmware } = req.body;
-//   if (!version || !firmware) {
-//     return res.status(400).send('Datos incompletos');
-//   }
-
-//   // 4. Convertir base64 a binario
-//   const binaryData = Buffer.from(firmware, 'base64');
-  
-//   // 5. Calcular checksum
-//   const hash = crypto.createHash('sha256');
-//   hash.update(binaryData);
-//   const checksum = hash.digest('hex');
-
-//   // 6. Guardar archivos
-//   try {
-//     fs.writeFileSync(`${FIRMWARE_DIR}/firmware.bin`, binaryData);
-//     fs.writeFileSync(`${FIRMWARE_DIR}/version.txt`, version);
-//     fs.writeFileSync(`${FIRMWARE_DIR}/checksum.txt`, checksum);
-    
-//     currentVersion = version;
-//     res.status(200).json({
-//       success: true,
-//       version,
-//       checksum
-//     });
-//   } catch (error) {
-//     console.error(error);
-//     res.status(500).send('Error al guardar firmware');
-//   }
-// });
-
-// // Iniciar servidor
-// app.listen(port, () => {
-//   console.log(`Servidor OTA escuchando en http://localhost:${port}`);
-//   if (!fs.existsSync(FIRMWARE_DIR)) {
-//     fs.mkdirSync(FIRMWARE_DIR);
-//   }
-// });
 
 // const mqtt = require('mqtt');
 

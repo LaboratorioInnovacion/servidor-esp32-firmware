@@ -2,14 +2,15 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <title>ESP32 Remote Update</title>
+    <title>Actualizar Firmware</title>
   </head>
   <body>
-    <h1>Enviar mensaje al ESP32</h1>
-    <form action="/update" method="POST">
-      <textarea name="code" rows="10" cols="50" placeholder="Escribe tu código o URL de OTA aquí"></textarea>
+    <h1>Enviar Firmware (.bin) al ESP32</h1>
+    <form action="/update-firmware" method="POST" enctype="multipart/form-data">
+      <p>Selecciona tu archivo .bin:</p>
+      <input type="file" name="firmware" accept=".bin" />
       <br><br>
-      <button type="submit">Enviar</button>
+      <button type="submit">Subir y Enviar OTA</button>
     </form>
   </body>
 </html>

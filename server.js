@@ -22,7 +22,7 @@ app.use(bodyParser.json());
 // Sustituye con tus datos reales (o usa variables de entorno en Render).
 // ----------------------------------------------------------------------
 const mqttOptions = {
-  host: 'ad11953c9a74146a4a26e47921b1f024.s1.eu.hivemq.cloud', // Ejemplo
+  host: 'ad11f935a9c74146a4d2e647921bf024.s1.eu.hivemq.cloud', // Ejemplo
   port: 8883,          // Puerto TLS
   protocol: 'mqtts',   // Conexión segura
   username: 'Augustodelcampo97',

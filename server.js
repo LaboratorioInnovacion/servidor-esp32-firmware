@@ -17,8 +17,8 @@ const options = {
   host: 'ad11953c9a74146a4a26e47921b1f024.s1.eu.hivemq.cloud', // Broker
   port: 8883,            // Puerto TLS
   protocol: 'mqtts',     // Protocolo seguro
-  username: 'TU_USUARIO',// <--- Reemplaza con tu usuario
-  password: 'TU_PASSWORD'// <--- Reemplaza con tu contraseña
+  username: 'Augustodelcampo97',// <--- Reemplaza con tu usuario
+  password: 'Augustodelcampo97'// <--- Reemplaza con tu contraseña
 };
 
 // Conexión MQTT

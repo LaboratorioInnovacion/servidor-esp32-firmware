@@ -2,60 +2,102 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const mqtt = require('mqtt');
 const path = require('path');
+const multer = require('multer');
 
 const app = express();
+
+// Para Render, usa el puerto asignado en process.env.PORT o 3000 por defecto
+const PORT = process.env.PORT || 3000;
 
 // Configurar EJS como motor de vistas
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
-// Parseo de formularios
+// Middlewares
 app.use(bodyParser.urlencoded({ extended: false }));
+app.use(bodyParser.json());
 
-// --- Credenciales de HiveMQ Cloud (Reemplaza con las tuyas) ---
-const options = {
-  host: 'ad11953c9a74146a4a26e47921b1f024.s1.eu.hivemq.cloud', // Broker
-  port: 8883,            // Puerto TLS
-  protocol: 'mqtts',     // Protocolo seguro
-  username: 'Augustodelcampo97',// <--- Reemplaza con tu usuario
-  password: 'Augustodelcampo97'// <--- Reemplaza con tu contraseña
+// ----------------------------------------------------------------------
+// CONFIGURACIÓN MQTT (HiveMQ Cloud)
+// Sustituye con tus datos reales (o usa variables de entorno en Render).
+// ----------------------------------------------------------------------
+const mqttOptions = {
+  host: 'ad11953c9a74146a4a26e47921b1f024.s1.eu.hivemq.cloud', // Ejemplo
+  port: 8883,          // Puerto TLS
+  protocol: 'mqtts',   // Conexión segura
+  username: 'Augustodelcampo97',
+  password: 'Augustodelcampo97'
 };
 
-// Conexión MQTT
-const client = mqtt.connect(options);
+// Conectar al broker MQTT
+const client = mqtt.connect(mqttOptions);
 
 client.on('connect', () => {
-  console.log('Conectado al broker MQTT de HiveMQ Cloud');
+  console.log('Conectado al broker MQTT');
 });
 
 client.on('error', (err) => {
   console.error('Error en la conexión MQTT:', err);
 });
 
-// Ruta principal: Renderiza el formulario EJS
+// ----------------------------------------------------------------------
+// CONFIGURACIÓN MULTER PARA SUBIR EL ARCHIVO
+// Se guardará en la carpeta "uploads/" con el nombre "firmware.bin"
+// ----------------------------------------------------------------------
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, 'uploads/');
+  },
+  filename: function (req, file, cb) {
+    // Puedes usar un nombre dinámico si deseas versionar. Aquí usamos uno fijo:
+    cb(null, 'firmware.bin');
+  }
+});
+const upload = multer({ storage });
+
+// ----------------------------------------------------------------------
+// SERVIR LA CARPETA "uploads" DE FORMA ESTÁTICA EN /firmware
+// Ejemplo: https://mi-esp32-ota.onrender.com/firmware/firmware.bin
+// ----------------------------------------------------------------------
+app.use('/firmware', express.static(path.join(__dirname, 'uploads')));
+
+// ----------------------------------------------------------------------
+// RUTA PRINCIPAL: Renderiza el formulario EJS
+// ----------------------------------------------------------------------
 app.get('/', (req, res) => {
-  res.render('index'); // Renderiza views/index.ejs
+  res.render('index');
 });
 
-// Ruta para recibir el “código” (o URL de OTA) y publicarlo en MQTT
-app.post('/update', (req, res) => {
-  const code = req.body.code;  // Nombre del campo <textarea name="code">
-  // Publicamos el “código” en el tópico "esp32/update"
-  client.publish('esp32/update', code, { qos: 0 }, (error) => {
+// ----------------------------------------------------------------------
+// RUTA POST PARA PROCESAR LA SUBIDA DEL ARCHIVO .bin
+// Y PUBLICAR LA URL EN MQTT
+// ----------------------------------------------------------------------
+app.post('/update-firmware', upload.single('firmware'), (req, res) => {
+  // Si tu app está en Render, tu dominio será algo como:
+  // https://mi-esp32-ota.onrender.com
+  // Reemplaza con tu URL real o usa process.env para configurarla.
+  const baseUrl = 'https://servidor-esp32.onrender.com'; // <--- Cámbialo a tu URL en Render
+  
+  // La ruta al binario subido:
+  const firmwareUrl = `${baseUrl}/firmware/firmware.bin`;
+
+  // Publicar la URL en el tópico "esp32/update"
+  client.publish('esp32/update', firmwareUrl, { qos: 0 }, (error) => {
     if (error) {
-      console.error('Error publicando el mensaje:', error);
-      return res.send('Hubo un error al enviar el mensaje al ESP32.');
+      console.error('Error publicando la URL de firmware:', error);
+      return res.send('Hubo un error al enviar la URL de firmware al ESP32.');
     }
-    console.log('Mensaje publicado en esp32/update:', code);
-    res.send('Mensaje enviado al ESP32 correctamente.');
+    console.log('URL de firmware publicada en esp32/update:', firmwareUrl);
+    res.send('Firmware subido y URL enviada al ESP32 correctamente.');
   });
 });
 
-// Iniciar el servidor en el puerto 3000
-app.listen(3000, () => {
-  console.log('Servidor corriendo en http://localhost:3000');
+// ----------------------------------------------------------------------
+// INICIAR SERVIDOR
+// ----------------------------------------------------------------------
+app.listen(PORT, () => {
+  console.log(`Servidor corriendo en http://localhost:${PORT}`);
 });
-
 
 // const mqtt = require('mqtt');
 

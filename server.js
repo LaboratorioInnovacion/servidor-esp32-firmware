@@ -1,101 +1,264 @@
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const bodyParser = require('body-parser');
 const mqtt = require('mqtt');
-const path = require('path');
 const multer = require('multer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// ---------------------------
+// 1) LECTURA DE devices.json
+// ---------------------------
+const devicesFile = path.join(__dirname, 'devices.json');
+let devicesData = {};
+
+try {
+  if (fs.existsSync(devicesFile)) {
+    const raw = fs.readFileSync(devicesFile);
+    devicesData = JSON.parse(raw);
+  } else {
+    devicesData = {};
+  }
+} catch (err) {
+  console.error('Error leyendo devices.json:', err);
+  devicesData = {};
+}
+
+// ---------------------------
+// 2) CONFIGURAR VISTAS EJS
+// ---------------------------
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
-app.use(bodyParser.urlencoded({ extended: false }));
 
-// -----------------
-// MQTT
-// -----------------
+app.use(bodyParser.urlencoded({ extended: false }));
+app.use(bodyParser.json());
+
+// ---------------------------
+// 3) CONEXIÓN AL BROKER MQTT
+// ---------------------------
 const mqttOptions = {
-  host: 'ad11f935a9c74146a4d2e647921bf024.s1.eu.hivemq.cloud',
+  host: 'ad11f935a9c74146a4d2e647921bf024.s1.eu.hivemq.cloud', // Ajusta a tu broker
   port: 8883,
   protocol: 'mqtts',
-  username: 'Augustodelcampo97',
-  password: 'Augustodelcampo97'
+  username: 'Augustodelcampo97',       // Reemplaza
+  password: 'Augustodelcampo97'      // Reemplaza
 };
+
 const mqttClient = mqtt.connect(mqttOptions);
 
 mqttClient.on('connect', () => {
   console.log('MQTT conectado');
-  // Suscribirse a "esp32/status" para saber quién está online/offline
+
+  // Suscribirse a tópicos de estado
   mqttClient.subscribe('esp32/status');
+  mqttClient.subscribe('esp32/heartbeat');
 });
 
-mqttClient.on('error', err => console.error('Error MQTT:', err));
+mqttClient.on('error', err => {
+  console.error('Error en MQTT:', err);
+});
 
-// Estructura en memoria para almacenar info de dispositivos
-const devices = {}; 
-// Formato: {
-//   "AA:BB:CC:11:22:33": { status: "online", version: "1.0.0", lastUpdate: Date.now() },
-//   ...
-// }
-
-// Al llegar un mensaje en "esp32/status"
+// ---------------------------
+// 4) MANEJO DE MENSAJES MQTT
+// ---------------------------
 mqttClient.on('message', (topic, message) => {
-  if (topic === 'esp32/status') {
-    try {
-      const data = JSON.parse(message.toString());
-      // data: { mac: "...", status: "online"/"offline", version: "1.0.0" }
-      const mac = data.mac;
-      if (!mac) return;
+  try {
+    const payload = JSON.parse(message.toString());
 
-      devices[mac] = {
-        status: data.status || 'unknown',
-        version: data.version || devices[mac]?.version || 'unknown',
-        lastUpdate: Date.now()
-      };
-      console.log(`Dispositivo ${mac} => ${data.status}, versión: ${devices[mac].version}`);
-    } catch (e) {
-      console.error('Error parseando status:', e);
-    }
+    if (topic === 'esp32/status') {
+      // Ej: {"mac":"AA:BB:CC:11:22:33","name":"Oficina","status":"online","version":"1.0.0"}
+      const mac = payload.mac || 'unknown';
+      if (!devicesData[mac]) {
+        devicesData[mac] = { measurements: [] };
+      }
+      devicesData[mac].name = payload.name || devicesData[mac].name || '';
+      devicesData[mac].status = payload.status || 'unknown';
+      devicesData[mac].version = payload.version || devicesData[mac].version || '';
+      devicesData[mac].lastSeen = Date.now();
+
+      console.log(`Dispositivo ${mac} => ${devicesData[mac].status}, v:${devicesData[mac].version}`);
+
+    } else if (topic === 'esp32/heartbeat') {
+      // Ej: {"mac":"AA:BB:CC:11:22:33","name":"Oficina","uptime":123456}
+      const mac = payload.mac || 'unknown';
+      if (!devicesData[mac]) {
+        devicesData[mac] = { measurements: [] };
+      }
+      devicesData[mac].name = payload.name || devicesData[mac].name || '';
+      devicesData[mac].status = 'online'; // asume que está en línea
+      devicesData[mac].lastSeen = Date.now();
+
+      // Podrías guardar mediciones si vienen en el heartbeat
+      // e.g. devicesData[mac].measurements.push({time: Date.now(), value: payload.value });
+
+      console.log(`Heartbeat de ${mac} => name:${devicesData[mac].name}`);
+
+    } 
+    // Podrías añadir más else if si tienes otros tópicos (ej: mediciones)
+
+    // Guardar en disco
+    fs.writeFileSync(devicesFile, JSON.stringify(devicesData, null, 2));
+
+  } catch (err) {
+    console.error('Error parseando mensaje MQTT:', err);
   }
 });
 
-// -----------------
-// Subida de firmware
-// -----------------
+// ---------------------------
+// 5) SUBIR FIRMWARE (OTA)
+// ---------------------------
+// Multer para subir el archivo .bin
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, 'uploads/'),
   filename: (req, file, cb) => cb(null, 'firmware.bin')
 });
 const upload = multer({ storage });
 
-// Servir carpeta /uploads
+// Servir la carpeta /uploads en /firmware
 app.use('/firmware', express.static(path.join(__dirname, 'uploads')));
 
-// Vista principal
-app.get('/', (req, res) => {
-  // Podemos mostrar la lista de dispositivos y su estado
-  res.render('index', { devices });
-});
-
-// Procesar subida de firmware
+// Ruta POST para subir firmware y publicar URL en "esp32/update"
 app.post('/update-firmware', upload.single('firmware'), (req, res) => {
-  const baseUrl = 'https://servidor-esp32.onrender.com'; // Ajustar a tu caso
-  const deviceId = req.body.deviceId; // MAC o "all"
+  // deviceId = MAC o "all"
+  const deviceId = req.body.deviceId || 'all';
+
+  // Ajusta baseUrl a tu dominio o IP
+  const baseUrl = 'https://servidor-esp32.onrender.com/'; 
+  // Si lo subes a Render, usarías "https://mi-app.onrender.com"
+  
   const firmwareUrl = `${baseUrl}/firmware/firmware.bin`;
-  const payload = `${deviceId}|${firmwareUrl}`;
+  const payload = `${deviceId}|${firmwareUrl}`;  // "<MAC>|<URL>" o "all|<URL>"
 
   mqttClient.publish('esp32/update', payload, err => {
     if (err) {
       console.error('Error publicando firmware:', err);
       return res.status(500).send('Error enviando firmware al ESP32.');
     }
+    console.log(`Firmware publicado para ${deviceId}: ${firmwareUrl}`);
     res.send(`Firmware subido y URL enviada a ${deviceId}.`);
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Servidor en http://localhost:${PORT}`);
+// ---------------------------
+// 6) VISTA PRINCIPAL
+// ---------------------------
+app.get('/', (req, res) => {
+  // Muestra en HTML la lista de dispositivos
+  res.render('index', { devices: devicesData });
 });
+
+// Ruta JSON para ver datos en crudo
+app.get('/devices', (req, res) => {
+  res.json(devicesData);
+});
+
+// ---------------------------
+// 7) INICIAR SERVIDOR
+// ---------------------------
+app.listen(PORT, () => {
+  console.log(`Servidor corriendo en http://localhost:${PORT}`);
+});
+
+// const express = require('express');
+// const bodyParser = require('body-parser');
+// const mqtt = require('mqtt');
+// const path = require('path');
+// const multer = require('multer');
+
+// const app = express();
+// const PORT = process.env.PORT || 3000;
+
+// app.set('view engine', 'ejs');
+// app.set('views', path.join(__dirname, 'views'));
+// app.use(bodyParser.urlencoded({ extended: false }));
+
+// // -----------------
+// // MQTT
+// // -----------------
+// const mqttOptions = {
+//   host: 'ad11f935a9c74146a4d2e647921bf024.s1.eu.hivemq.cloud',
+//   port: 8883,
+//   protocol: 'mqtts',
+//   username: 'Augustodelcampo97',
+//   password: 'Augustodelcampo97'
+// };
+// const mqttClient = mqtt.connect(mqttOptions);
+
+// mqttClient.on('connect', () => {
+//   console.log('MQTT conectado');
+//   // Suscribirse a "esp32/status" para saber quién está online/offline
+//   mqttClient.subscribe('esp32/status');
+// });
+
+// mqttClient.on('error', err => console.error('Error MQTT:', err));
+
+// // Estructura en memoria para almacenar info de dispositivos
+// const devices = {}; 
+// // Formato: {
+// //   "AA:BB:CC:11:22:33": { status: "online", version: "1.0.0", lastUpdate: Date.now() },
+// //   ...
+// // }
+
+// // Al llegar un mensaje en "esp32/status"
+// mqttClient.on('message', (topic, message) => {
+//   if (topic === 'esp32/status') {
+//     try {
+//       const data = JSON.parse(message.toString());
+//       // data: { mac: "...", status: "online"/"offline", version: "1.0.0" }
+//       const mac = data.mac;
+//       if (!mac) return;
+
+//       devices[mac] = {
+//         status: data.status || 'unknown',
+//         version: data.version || devices[mac]?.version || 'unknown',
+//         lastUpdate: Date.now()
+//       };
+//       console.log(`Dispositivo ${mac} => ${data.status}, versión: ${devices[mac].version}`);
+//     } catch (e) {
+//       console.error('Error parseando status:', e);
+//     }
+//   }
+// });
+
+// // -----------------
+// // Subida de firmware
+// // -----------------
+// const storage = multer.diskStorage({
+//   destination: (req, file, cb) => cb(null, 'uploads/'),
+//   filename: (req, file, cb) => cb(null, 'firmware.bin')
+// });
+// const upload = multer({ storage });
+
+// // Servir carpeta /uploads
+// app.use('/firmware', express.static(path.join(__dirname, 'uploads')));
+
+// // Vista principal
+// app.get('/', (req, res) => {
+//   // Podemos mostrar la lista de dispositivos y su estado
+//   res.render('index', { devices });
+// });
+
+// // Procesar subida de firmware
+// app.post('/update-firmware', upload.single('firmware'), (req, res) => {
+//   const baseUrl = 'https://servidor-esp32.onrender.com'; // Ajustar a tu caso
+//   const deviceId = req.body.deviceId; // MAC o "all"
+//   const firmwareUrl = `${baseUrl}/firmware/firmware.bin`;
+//   const payload = `${deviceId}|${firmwareUrl}`;
+
+//   mqttClient.publish('esp32/update', payload, err => {
+//     if (err) {
+//       console.error('Error publicando firmware:', err);
+//       return res.status(500).send('Error enviando firmware al ESP32.');
+//     }
+//     res.send(`Firmware subido y URL enviada a ${deviceId}.`);
+//   });
+// });
+
+// app.listen(PORT, () => {
+//   console.log(`Servidor en http://localhost:${PORT}`);
+// });
 
 // const express = require('express');
 // const bodyParser = require('body-parser');

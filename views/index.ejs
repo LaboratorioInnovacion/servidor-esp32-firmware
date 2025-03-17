@@ -2,14 +2,15 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <title>OTA Management</title>
+    <title>ESP32 OTA y Dispositivos</title>
   </head>
   <body>
-    <h1>Actualizar Firmware</h1>
+    <h1>Actualizar Firmware (OTA)</h1>
     <form action="/update-firmware" method="POST" enctype="multipart/form-data">
-      <label>MAC o "all":</label>
+      <label>Device ID (MAC o "all"):</label>
       <input type="text" name="deviceId" placeholder="AA:BB:CC:11:22:33" />
       <br><br>
+      <label>Selecciona firmware (.bin):</label>
       <input type="file" name="firmware" accept=".bin" />
       <br><br>
       <button type="submit">Subir y Enviar</button>
@@ -17,14 +18,15 @@
 
     <hr>
 
-    <h2>Dispositivos Conocidos</h2>
+    <h2>Lista de Dispositivos</h2>
     <ul>
       <% for (let mac in devices) { %>
         <li>
           <strong><%= mac %></strong> - 
-          Estado: <%= devices[mac].status %> - 
-          Versión: <%= devices[mac].version %> 
-          (último update: <%= new Date(devices[mac].lastUpdate).toLocaleString() %>)
+          Estado: <%= devices[mac].status %> | 
+          Versión: <%= devices[mac].version %> | 
+          Nombre: <%= devices[mac].name %> | 
+          Último visto: <%= new Date(devices[mac].lastSeen).toLocaleString() %>
         </li>
       <% } %>
     </ul>

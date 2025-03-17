@@ -2,15 +2,31 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <title>Actualizar Firmware</title>
+    <title>OTA Management</title>
   </head>
   <body>
-    <h1>Enviar Firmware (.bin) al ESP32</h1>
+    <h1>Actualizar Firmware</h1>
     <form action="/update-firmware" method="POST" enctype="multipart/form-data">
-      <p>Selecciona tu archivo .bin:</p>
+      <label>MAC o "all":</label>
+      <input type="text" name="deviceId" placeholder="AA:BB:CC:11:22:33" />
+      <br><br>
       <input type="file" name="firmware" accept=".bin" />
       <br><br>
-      <button type="submit">Subir y Enviar OTA</button>
+      <button type="submit">Subir y Enviar</button>
     </form>
+
+    <hr>
+
+    <h2>Dispositivos Conocidos</h2>
+    <ul>
+      <% for (let mac in devices) { %>
+        <li>
+          <strong><%= mac %></strong> - 
+          Estado: <%= devices[mac].status %> - 
+          Versión: <%= devices[mac].version %> 
+          (último update: <%= new Date(devices[mac].lastUpdate).toLocaleString() %>)
+        </li>
+      <% } %>
+    </ul>
   </body>
 </html>

@@ -148,7 +148,7 @@ app.use('/firmware', express.static(path.join(__dirname, 'uploads')));
 
 app.post('/update-firmware', upload.single('firmware'), (req, res) => {
   const deviceId = req.body.deviceId || 'all';
-  const baseUrl = 'https://servidor-esp32.onrender.com/';
+  const baseUrl = 'https://servidor-esp32.onrender.com';
   const firmwareUrl = `${baseUrl}/firmware/firmware.bin`;
   const payload = `${deviceId}|${firmwareUrl}`;
 

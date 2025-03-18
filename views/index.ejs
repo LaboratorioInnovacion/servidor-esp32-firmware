@@ -26,7 +26,7 @@
           Estado: <%= devices[mac].status %> | 
           Versión: <%= devices[mac].version %> | 
           Nombre: <%= devices[mac].name %> | 
-          Último visto: <%= new Date(devices[mac].lastSeen) %>
+          Último visto: <%= devices[mac].lastSeen %>
         </li>
       <% } %>
     </ul>

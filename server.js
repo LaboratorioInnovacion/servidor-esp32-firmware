@@ -35,6 +35,17 @@ app.set('views', path.join(__dirname, 'views'));
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
+app.get('/devices-json', (req, res) => {
+  try {
+    const rawData = fs.readFileSync(devicesFile, 'utf8'); // Leer el archivo
+    const jsonData = JSON.parse(rawData); // Parsear el contenido
+    res.json(jsonData); // Enviar el contenido como respuesta JSON
+  } catch (err) {
+    console.error('Error leyendo devices.json:', err);
+    res.status(500).send('Error al leer el archivo devices.json');
+  }
+});
+
 // ---------------------------
 // 3) CONEXIÓN AL BROKER MQTT
 // ---------------------------

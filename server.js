@@ -61,14 +61,30 @@ mqttClient.on('error', err => {
 });
 
 // ---------------------------
-// 4) MANEJO DE MENSAJES MQTT
+// 4) FUNCIÓN PARA FORMATEAR FECHAS (HUSO DE ARGENTINA)
+// ---------------------------
+function getArgentinaTime() {
+  const options = {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  };
+  const formatter = new Intl.DateTimeFormat('es-AR', options);
+  return formatter.format(new Date());
+}
+
+// ---------------------------
+// 5) MANEJO DE MENSAJES MQTT
 // ---------------------------
 mqttClient.on('message', (topic, message) => {
   try {
     const payload = JSON.parse(message.toString());
 
     if (topic === 'esp32/status') {
-      // Ej: {"mac":"AA:BB:CC:11:22:33","name":"Oficina","status":"online","version":"1.0.0"}
       const mac = payload.mac || 'unknown';
       if (!devicesData[mac]) {
         devicesData[mac] = { measurements: [] };
@@ -76,27 +92,29 @@ mqttClient.on('message', (topic, message) => {
       devicesData[mac].name = payload.name || devicesData[mac].name || '';
       devicesData[mac].status = payload.status || 'unknown';
       devicesData[mac].version = payload.version || devicesData[mac].version || '';
-      devicesData[mac].lastSeen = Date.now();
+      devicesData[mac].lastSeen = getArgentinaTime();
 
       console.log(`Dispositivo ${mac} => ${devicesData[mac].status}, v:${devicesData[mac].version}`);
 
     } else if (topic === 'esp32/heartbeat') {
-      // Ej: {"mac":"AA:BB:CC:11:22:33","name":"Oficina","uptime":123456}
       const mac = payload.mac || 'unknown';
       if (!devicesData[mac]) {
         devicesData[mac] = { measurements: [] };
       }
       devicesData[mac].name = payload.name || devicesData[mac].name || '';
-      devicesData[mac].status = 'online'; // asume que está en línea
-      devicesData[mac].lastSeen = Date.now();
+      devicesData[mac].status = 'online';
+      devicesData[mac].lastSeen = getArgentinaTime();
 
-      // Podrías guardar mediciones si vienen en el heartbeat
-      // e.g. devicesData[mac].measurements.push({time: Date.now(), value: payload.value });
+      // Guardar mediciones recibidas en el heartbeat
+      if (payload.uptime) {
+        devicesData[mac].measurements.push({
+          time: getArgentinaTime(),
+          uptime: payload.uptime,
+        });
+      }
 
       console.log(`Heartbeat de ${mac} => name:${devicesData[mac].name}`);
-
-    } 
-    // Podrías añadir más else if si tienes otros tópicos (ej: mediciones)
+    }
 
     // Guardar en disco
     fs.writeFileSync(devicesFile, JSON.stringify(devicesData, null, 2));
@@ -107,29 +125,21 @@ mqttClient.on('message', (topic, message) => {
 });
 
 // ---------------------------
-// 5) SUBIR FIRMWARE (OTA)
+// 6) SUBIR FIRMWARE (OTA)
 // ---------------------------
-// Multer para subir el archivo .bin
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, 'uploads/'),
   filename: (req, file, cb) => cb(null, 'firmware.bin')
 });
 const upload = multer({ storage });
 
-// Servir la carpeta /uploads en /firmware
 app.use('/firmware', express.static(path.join(__dirname, 'uploads')));
 
-// Ruta POST para subir firmware y publicar URL en "esp32/update"
 app.post('/update-firmware', upload.single('firmware'), (req, res) => {
-  // deviceId = MAC o "all"
   const deviceId = req.body.deviceId || 'all';
-
-  // Ajusta baseUrl a tu dominio o IP
-  const baseUrl = 'https://servidor-esp32.onrender.com/'; 
-  // Si lo subes a Render, usarías "https://mi-app.onrender.com"
-  
+  const baseUrl = 'https://servidor-esp32.onrender.com/';
   const firmwareUrl = `${baseUrl}/firmware/firmware.bin`;
-  const payload = `${deviceId}|${firmwareUrl}`;  // "<MAC>|<URL>" o "all|<URL>"
+  const payload = `${deviceId}|${firmwareUrl}`;
 
   mqttClient.publish('esp32/update', payload, err => {
     if (err) {
@@ -142,10 +152,9 @@ app.post('/update-firmware', upload.single('firmware'), (req, res) => {
 });
 
 // ---------------------------
-// 6) VISTA PRINCIPAL
+// 7) VISTA PRINCIPAL
 // ---------------------------
 app.get('/', (req, res) => {
-  // Muestra en HTML la lista de dispositivos
   res.render('index', { devices: devicesData });
 });
 
@@ -155,11 +164,173 @@ app.get('/devices', (req, res) => {
 });
 
 // ---------------------------
-// 7) INICIAR SERVIDOR
+// 8) INICIAR SERVIDOR
 // ---------------------------
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en http://localhost:${PORT}`);
 });
+// const fs = require('fs');
+// const path = require('path');
+// const express = require('express');
+// const bodyParser = require('body-parser');
+// const mqtt = require('mqtt');
+// const multer = require('multer');
+
+// const app = express();
+// const PORT = process.env.PORT || 3000;
+
+// // ---------------------------
+// // 1) LECTURA DE devices.json
+// // ---------------------------
+// const devicesFile = path.join(__dirname, 'devices.json');
+// let devicesData = {};
+
+// try {
+//   if (fs.existsSync(devicesFile)) {
+//     const raw = fs.readFileSync(devicesFile);
+//     devicesData = JSON.parse(raw);
+//   } else {
+//     devicesData = {};
+//   }
+// } catch (err) {
+//   console.error('Error leyendo devices.json:', err);
+//   devicesData = {};
+// }
+
+// // ---------------------------
+// // 2) CONFIGURAR VISTAS EJS
+// // ---------------------------
+// app.set('view engine', 'ejs');
+// app.set('views', path.join(__dirname, 'views'));
+
+// app.use(bodyParser.urlencoded({ extended: false }));
+// app.use(bodyParser.json());
+
+// // ---------------------------
+// // 3) CONEXIÓN AL BROKER MQTT
+// // ---------------------------
+// const mqttOptions = {
+//   host: 'ad11f935a9c74146a4d2e647921bf024.s1.eu.hivemq.cloud', // Ajusta a tu broker
+//   port: 8883,
+//   protocol: 'mqtts',
+//   username: 'Augustodelcampo97',       // Reemplaza
+//   password: 'Augustodelcampo97'      // Reemplaza
+// };
+
+// const mqttClient = mqtt.connect(mqttOptions);
+
+// mqttClient.on('connect', () => {
+//   console.log('MQTT conectado');
+
+//   // Suscribirse a tópicos de estado
+//   mqttClient.subscribe('esp32/status');
+//   mqttClient.subscribe('esp32/heartbeat');
+// });
+
+// mqttClient.on('error', err => {
+//   console.error('Error en MQTT:', err);
+// });
+
+// // ---------------------------
+// // 4) MANEJO DE MENSAJES MQTT
+// // ---------------------------
+// mqttClient.on('message', (topic, message) => {
+//   try {
+//     const payload = JSON.parse(message.toString());
+
+//     if (topic === 'esp32/status') {
+//       // Ej: {"mac":"AA:BB:CC:11:22:33","name":"Oficina","status":"online","version":"1.0.0"}
+//       const mac = payload.mac || 'unknown';
+//       if (!devicesData[mac]) {
+//         devicesData[mac] = { measurements: [] };
+//       }
+//       devicesData[mac].name = payload.name || devicesData[mac].name || '';
+//       devicesData[mac].status = payload.status || 'unknown';
+//       devicesData[mac].version = payload.version || devicesData[mac].version || '';
+//       devicesData[mac].lastSeen = Date.now();
+
+//       console.log(`Dispositivo ${mac} => ${devicesData[mac].status}, v:${devicesData[mac].version}`);
+
+//     } else if (topic === 'esp32/heartbeat') {
+//       // Ej: {"mac":"AA:BB:CC:11:22:33","name":"Oficina","uptime":123456}
+//       const mac = payload.mac || 'unknown';
+//       if (!devicesData[mac]) {
+//         devicesData[mac] = { measurements: [] };
+//       }
+//       devicesData[mac].name = payload.name || devicesData[mac].name || '';
+//       devicesData[mac].status = 'online'; // asume que está en línea
+//       devicesData[mac].lastSeen = Date.now();
+
+//       // Podrías guardar mediciones si vienen en el heartbeat
+//       // e.g. devicesData[mac].measurements.push({time: Date.now(), value: payload.value });
+
+//       console.log(`Heartbeat de ${mac} => name:${devicesData[mac].name}`);
+
+//     } 
+//     // Podrías añadir más else if si tienes otros tópicos (ej: mediciones)
+
+//     // Guardar en disco
+//     fs.writeFileSync(devicesFile, JSON.stringify(devicesData, null, 2));
+
+//   } catch (err) {
+//     console.error('Error parseando mensaje MQTT:', err);
+//   }
+// });
+
+// // ---------------------------
+// // 5) SUBIR FIRMWARE (OTA)
+// // ---------------------------
+// // Multer para subir el archivo .bin
+// const storage = multer.diskStorage({
+//   destination: (req, file, cb) => cb(null, 'uploads/'),
+//   filename: (req, file, cb) => cb(null, 'firmware.bin')
+// });
+// const upload = multer({ storage });
+
+// // Servir la carpeta /uploads en /firmware
+// app.use('/firmware', express.static(path.join(__dirname, 'uploads')));
+
+// // Ruta POST para subir firmware y publicar URL en "esp32/update"
+// app.post('/update-firmware', upload.single('firmware'), (req, res) => {
+//   // deviceId = MAC o "all"
+//   const deviceId = req.body.deviceId || 'all';
+
+//   // Ajusta baseUrl a tu dominio o IP
+//   const baseUrl = 'https://servidor-esp32.onrender.com/'; 
+//   // Si lo subes a Render, usarías "https://mi-app.onrender.com"
+  
+//   const firmwareUrl = `${baseUrl}/firmware/firmware.bin`;
+//   const payload = `${deviceId}|${firmwareUrl}`;  // "<MAC>|<URL>" o "all|<URL>"
+
+//   mqttClient.publish('esp32/update', payload, err => {
+//     if (err) {
+//       console.error('Error publicando firmware:', err);
+//       return res.status(500).send('Error enviando firmware al ESP32.');
+//     }
+//     console.log(`Firmware publicado para ${deviceId}: ${firmwareUrl}`);
+//     res.send(`Firmware subido y URL enviada a ${deviceId}.`);
+//   });
+// });
+
+// // ---------------------------
+// // 6) VISTA PRINCIPAL
+// // ---------------------------
+// app.get('/', (req, res) => {
+//   // Muestra en HTML la lista de dispositivos
+//   res.render('index', { devices: devicesData });
+// });
+
+// // Ruta JSON para ver datos en crudo
+// app.get('/devices', (req, res) => {
+//   res.json(devicesData);
+// });
+
+// // ---------------------------
+// // 7) INICIAR SERVIDOR
+// // ---------------------------
+// app.listen(PORT, () => {
+//   console.log(`Servidor corriendo en http://localhost:${PORT}`);
+// });
 
 // const express = require('express');
 // const bodyParser = require('body-parser');

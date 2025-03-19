@@ -30,24 +30,5 @@
         </li>
       <% } %>
     </ul>
-    <table>
-      <tr>
-        <th>MAC</th>
-        <th>Nombre</th>
-        <th>Estado</th>
-        <th>Última vez visto</th>
-      </tr>
-      <% for (let mac in devices) { %>
-        <tr>
-          <td><%= mac %></td>
-          <td><%= devices[mac].name || 'Desconocido' %></td>
-          <td style="color: <%= devices[mac].status === 'online' ? 'green' : 'red' %>">
-            <%= devices[mac].status %>
-          </td>
-          <td><%= devices[mac].lastSeen %></td>
-        </tr>
-      <% } %>
-    </table>
-    
   </body>
 </html>

@@ -129,6 +129,8 @@ mqttClient.on('message', (topic, message) => {
 
     // Guardar en disco
     fs.writeFileSync(devicesFile, JSON.stringify(devicesData, null, 2));
+    console.log('Archivo devices.json actualizado:', devicesData);
+
 
   } catch (err) {
     console.error('Error parseando mensaje MQTT:', err);

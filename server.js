@@ -175,6 +175,22 @@ app.get('/', (req, res) => {
 app.get('/devices', (req, res) => {
   res.json(devicesData);
 });
+// ---------------------------
+// 7.1) MONITOREO DE DISPOSITIVOS DESCONECTADOS
+// ---------------------------
+setInterval(() => {
+  const ahora = new Date();
+  Object.keys(devicesData).forEach(mac => {
+    const lastSeen = new Date(devicesData[mac].lastSeen);
+    const diferencia = (ahora - lastSeen) / 1000; // Diferencia en segundos
+    if (diferencia > 60) { // Si han pasado más de 60 segundos sin heartbeat
+      devicesData[mac].status = 'offline';
+    }
+  });
+
+  fs.writeFileSync(devicesFile, JSON.stringify(devicesData, null, 2));
+}, 30000); // Ejecutar cada 30 segundos
+
 
 // ---------------------------
 // 8) INICIAR SERVIDOR

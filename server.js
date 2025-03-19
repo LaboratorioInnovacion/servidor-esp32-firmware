@@ -4,40 +4,18 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const mqtt = require('mqtt');
 const multer = require('multer');
+const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ---------------------------
-// 1) LECTURA DE devices.json
+// CONEXIÓN A POSTGRES
 // ---------------------------
-const devicesFile = path.join(__dirname, 'devices.json');
-let devicesData = {};
-// Intentar leer el archivo si existe
-try {
-  if (fs.existsSync(devicesFile)) {
-    const raw = fs.readFileSync(devicesFile, 'utf8');
-    if (raw.trim()) {
-      devicesData = JSON.parse(raw); // Solo parsear si el archivo tiene contenido
-    } else {
-      devicesData = {};
-    }
-  }
-} catch (err) {
-  console.error('Error leyendo devices.json:', err);
-  devicesData = {}; // Evitar que se borren datos si hay error
-}
-// try {
-//   if (fs.existsSync(devicesFile)) {
-//     const raw = fs.readFileSync(devicesFile);
-//     devicesData = JSON.parse(raw);
-//   } else {
-//     devicesData = {};
-//   }
-// } catch (err) {
-//   console.error('Error leyendo devices.json:', err);
-//   devicesData = {};
-// }
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL || 'postgresql://user:password@localhost:5432/mydatabase'
+});
+// Asegúrate de reemplazar 'user:password@localhost:5432/mydatabase' con la conexión a tu DB
 
 // ---------------------------
 // 2) CONFIGURAR VISTAS EJS
@@ -48,14 +26,14 @@ app.set('views', path.join(__dirname, 'views'));
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
-app.get('/devices-json', (req, res) => {
+// Endpoint para ver los dispositivos en crudo (JSON)
+app.get('/devices-json', async (req, res) => {
   try {
-    const rawData = fs.readFileSync(devicesFile, 'utf8'); // Leer el archivo
-    const jsonData = JSON.parse(rawData); // Parsear el contenido
-    res.json(jsonData); // Enviar el contenido como respuesta JSON
+    const result = await pool.query('SELECT * FROM devices ORDER BY last_seen DESC');
+    res.json(result.rows);
   } catch (err) {
-    console.error('Error leyendo devices.json:', err);
-    res.status(500).send('Error al leer el archivo devices.json');
+    console.error('Error consultando la DB:', err);
+    res.status(500).send('Error al consultar la DB.');
   }
 });
 
@@ -66,16 +44,15 @@ const mqttOptions = {
   host: 'ad11f935a9c74146a4d2e647921bf024.s1.eu.hivemq.cloud', // Ajusta a tu broker
   port: 8883,
   protocol: 'mqtts',
-  username: 'Augustodelcampo97',       // Reemplaza
-  password: 'Augustodelcampo97'      // Reemplaza
+  username: 'Augustodelcampo97',
+  password: 'Augustodelcampo97'
 };
 
 const mqttClient = mqtt.connect(mqttOptions);
 
 mqttClient.on('connect', () => {
   console.log('MQTT conectado');
-
-  // Suscribirse a tópicos de estado
+  // Suscribirse a tópicos de estado y heartbeat
   mqttClient.subscribe('esp32/status');
   mqttClient.subscribe('esp32/heartbeat');
 });
@@ -107,44 +84,58 @@ function getArgentinaTime() {
 mqttClient.on('message', (topic, message) => {
   try {
     const payload = JSON.parse(message.toString());
+    const mac = payload.mac || 'unknown';
 
     if (topic === 'esp32/status') {
-      const mac = payload.mac || 'unknown';
-      if (!devicesData[mac]) {
-        devicesData[mac] = { measurements: [] };
-      }
-      devicesData[mac].name = payload.name || devicesData[mac].name || '';
-      devicesData[mac].status = payload.status || 'unknown';
-      devicesData[mac].version = payload.version || devicesData[mac].version || '';
-      devicesData[mac].lastSeen = getArgentinaTime();
+      const name = payload.name || '';
+      const status = payload.status || 'unknown';
+      const version = payload.version || '';
 
-      console.log(`Dispositivo ${mac} => ${devicesData[mac].status}, v:${devicesData[mac].version}`);
-
+      // Insertar o actualizar el dispositivo en la tabla devices
+      pool.query(
+        `INSERT INTO devices (mac, name, status, version, last_seen) 
+         VALUES ($1, $2, $3, $4, NOW()) 
+         ON CONFLICT (mac) DO UPDATE SET 
+           name = $2, status = $3, version = $4, last_seen = NOW()`,
+        [mac, name, status, version],
+        (err, result) => {
+          if (err) {
+            console.error('Error actualizando dispositivo:', err);
+          } else {
+            console.log(`Dispositivo ${mac} actualizado a estado ${status}, v:${version}`);
+          }
+        }
+      );
     } else if (topic === 'esp32/heartbeat') {
-      const mac = payload.mac || 'unknown';
-      if (!devicesData[mac]) {
-        devicesData[mac] = { measurements: [] };
-      }
-      devicesData[mac].name = payload.name || devicesData[mac].name || '';
-      devicesData[mac].status = 'online';
-      devicesData[mac].lastSeen = getArgentinaTime();
-
-      // Guardar mediciones recibidas en el heartbeat
+      const name = payload.name || '';
+      // Actualizar el dispositivo a estado online y actualizar last_seen
+      pool.query(
+        `INSERT INTO devices (mac, name, status, last_seen) 
+         VALUES ($1, $2, 'online', NOW()) 
+         ON CONFLICT (mac) DO UPDATE SET 
+           name = $2, status = 'online', last_seen = NOW()`,
+        [mac, name],
+        (err, result) => {
+          if (err) {
+            console.error('Error actualizando heartbeat del dispositivo:', err);
+          } else {
+            console.log(`Heartbeat recibido de ${mac} => name: ${name}`);
+          }
+        }
+      );
+      // Insertar medición si se proporciona uptime
       if (payload.uptime) {
-        devicesData[mac].measurements.push({
-          time: getArgentinaTime(),
-          uptime: payload.uptime,
-        });
+        pool.query(
+          `INSERT INTO measurements (mac, time, uptime) VALUES ($1, NOW(), $2)`,
+          [mac, payload.uptime],
+          (err, result) => {
+            if (err) {
+              console.error('Error insertando medición:', err);
+            }
+          }
+        );
       }
-
-      console.log(`Heartbeat de ${mac} => name:${devicesData[mac].name}`);
     }
-
-    // Guardar en disco
-    fs.writeFileSync(devicesFile, JSON.stringify(devicesData, null, 2));
-    console.log('Archivo devices.json actualizado:', devicesData);
-
-
   } catch (err) {
     console.error('Error parseando mensaje MQTT:', err);
   }
@@ -180,30 +171,41 @@ app.post('/update-firmware', upload.single('firmware'), (req, res) => {
 // ---------------------------
 // 7) VISTA PRINCIPAL
 // ---------------------------
-app.get('/', (req, res) => {
-  res.render('index', { devices: devicesData });
+app.get('/', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM devices ORDER BY last_seen DESC');
+    res.render('index', { devices: result.rows });
+  } catch (err) {
+    console.error('Error consultando la DB:', err);
+    res.status(500).send('Error al consultar la DB.');
+  }
 });
 
-// Ruta JSON para ver datos en crudo
-app.get('/devices', (req, res) => {
-  res.json(devicesData);
+app.get('/devices', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM devices ORDER BY last_seen DESC');
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error consultando la DB:', err);
+    res.status(500).send('Error al consultar la DB.');
+  }
 });
+
 // ---------------------------
 // 7.1) MONITOREO DE DISPOSITIVOS DESCONECTADOS
 // ---------------------------
 setInterval(() => {
-  const ahora = new Date();
-  Object.keys(devicesData).forEach(mac => {
-    const lastSeen = new Date(devicesData[mac].lastSeen);
-    const diferencia = (ahora - lastSeen) / 1000; // Diferencia en segundos
-    if (diferencia > 60) { // Si han pasado más de 60 segundos sin heartbeat
-      devicesData[mac].status = 'offline';
+  pool.query(
+    `UPDATE devices SET status = 'offline' WHERE last_seen < NOW() - INTERVAL '60 seconds'`,
+    (err, result) => {
+      if (err) {
+        console.error('Error actualizando dispositivos offline:', err);
+      } else {
+        console.log('Dispositivos marcados como offline');
+      }
     }
-  });
-
-  fs.writeFileSync(devicesFile, JSON.stringify(devicesData, null, 2));
+  );
 }, 30000); // Ejecutar cada 30 segundos
-
 
 // ---------------------------
 // 8) INICIAR SERVIDOR
@@ -211,6 +213,220 @@ setInterval(() => {
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en http://localhost:${PORT}`);
 });
+
+// const fs = require('fs');
+// const path = require('path');
+// const express = require('express');
+// const bodyParser = require('body-parser');
+// const mqtt = require('mqtt');
+// const multer = require('multer');
+
+// const app = express();
+// const PORT = process.env.PORT || 3000;
+
+// // ---------------------------
+// // 1) LECTURA DE devices.json
+// // ---------------------------
+// const devicesFile = path.join(__dirname, 'devices.json');
+// let devicesData = {};
+// // Intentar leer el archivo si existe
+// try {
+//   if (fs.existsSync(devicesFile)) {
+//     const raw = fs.readFileSync(devicesFile, 'utf8');
+//     if (raw.trim()) {
+//       devicesData = JSON.parse(raw); // Solo parsear si el archivo tiene contenido
+//     } else {
+//       devicesData = {};
+//     }
+//   }
+// } catch (err) {
+//   console.error('Error leyendo devices.json:', err);
+//   devicesData = {}; // Evitar que se borren datos si hay error
+// }
+// // try {
+// //   if (fs.existsSync(devicesFile)) {
+// //     const raw = fs.readFileSync(devicesFile);
+// //     devicesData = JSON.parse(raw);
+// //   } else {
+// //     devicesData = {};
+// //   }
+// // } catch (err) {
+// //   console.error('Error leyendo devices.json:', err);
+// //   devicesData = {};
+// // }
+
+// // ---------------------------
+// // 2) CONFIGURAR VISTAS EJS
+// // ---------------------------
+// app.set('view engine', 'ejs');
+// app.set('views', path.join(__dirname, 'views'));
+
+// app.use(bodyParser.urlencoded({ extended: false }));
+// app.use(bodyParser.json());
+
+// app.get('/devices-json', (req, res) => {
+//   try {
+//     const rawData = fs.readFileSync(devicesFile, 'utf8'); // Leer el archivo
+//     const jsonData = JSON.parse(rawData); // Parsear el contenido
+//     res.json(jsonData); // Enviar el contenido como respuesta JSON
+//   } catch (err) {
+//     console.error('Error leyendo devices.json:', err);
+//     res.status(500).send('Error al leer el archivo devices.json');
+//   }
+// });
+
+// // ---------------------------
+// // 3) CONEXIÓN AL BROKER MQTT
+// // ---------------------------
+// const mqttOptions = {
+//   host: 'ad11f935a9c74146a4d2e647921bf024.s1.eu.hivemq.cloud', // Ajusta a tu broker
+//   port: 8883,
+//   protocol: 'mqtts',
+//   username: 'Augustodelcampo97',       // Reemplaza
+//   password: 'Augustodelcampo97'      // Reemplaza
+// };
+
+// const mqttClient = mqtt.connect(mqttOptions);
+
+// mqttClient.on('connect', () => {
+//   console.log('MQTT conectado');
+
+//   // Suscribirse a tópicos de estado
+//   mqttClient.subscribe('esp32/status');
+//   mqttClient.subscribe('esp32/heartbeat');
+// });
+
+// mqttClient.on('error', err => {
+//   console.error('Error en MQTT:', err);
+// });
+
+// // ---------------------------
+// // 4) FUNCIÓN PARA FORMATEAR FECHAS (HUSO DE ARGENTINA)
+// // ---------------------------
+// function getArgentinaTime() {
+//   const options = {
+//     timeZone: 'America/Argentina/Buenos_Aires',
+//     year: 'numeric',
+//     month: '2-digit',
+//     day: '2-digit',
+//     hour: '2-digit',
+//     minute: '2-digit',
+//     second: '2-digit',
+//   };
+//   const formatter = new Intl.DateTimeFormat('es-AR', options);
+//   return formatter.format(new Date());
+// }
+
+// // ---------------------------
+// // 5) MANEJO DE MENSAJES MQTT
+// // ---------------------------
+// mqttClient.on('message', (topic, message) => {
+//   try {
+//     const payload = JSON.parse(message.toString());
+
+//     if (topic === 'esp32/status') {
+//       const mac = payload.mac || 'unknown';
+//       if (!devicesData[mac]) {
+//         devicesData[mac] = { measurements: [] };
+//       }
+//       devicesData[mac].name = payload.name || devicesData[mac].name || '';
+//       devicesData[mac].status = payload.status || 'unknown';
+//       devicesData[mac].version = payload.version || devicesData[mac].version || '';
+//       devicesData[mac].lastSeen = getArgentinaTime();
+
+//       console.log(`Dispositivo ${mac} => ${devicesData[mac].status}, v:${devicesData[mac].version}`);
+
+//     } else if (topic === 'esp32/heartbeat') {
+//       const mac = payload.mac || 'unknown';
+//       if (!devicesData[mac]) {
+//         devicesData[mac] = { measurements: [] };
+//       }
+//       devicesData[mac].name = payload.name || devicesData[mac].name || '';
+//       devicesData[mac].status = 'online';
+//       devicesData[mac].lastSeen = getArgentinaTime();
+
+//       // Guardar mediciones recibidas en el heartbeat
+//       if (payload.uptime) {
+//         devicesData[mac].measurements.push({
+//           time: getArgentinaTime(),
+//           uptime: payload.uptime,
+//         });
+//       }
+
+//       console.log(`Heartbeat de ${mac} => name:${devicesData[mac].name}`);
+//     }
+
+//     // Guardar en disco
+//     fs.writeFileSync(devicesFile, JSON.stringify(devicesData, null, 2));
+//     console.log('Archivo devices.json actualizado:', devicesData);
+
+
+//   } catch (err) {
+//     console.error('Error parseando mensaje MQTT:', err);
+//   }
+// });
+
+// // ---------------------------
+// // 6) SUBIR FIRMWARE (OTA)
+// // ---------------------------
+// const storage = multer.diskStorage({
+//   destination: (req, file, cb) => cb(null, 'uploads/'),
+//   filename: (req, file, cb) => cb(null, 'firmware.bin')
+// });
+// const upload = multer({ storage });
+
+// app.use('/firmware', express.static(path.join(__dirname, 'uploads')));
+
+// app.post('/update-firmware', upload.single('firmware'), (req, res) => {
+//   const deviceId = req.body.deviceId || 'all';
+//   const baseUrl = 'https://servidor-esp32.onrender.com';
+//   const firmwareUrl = `${baseUrl}/firmware/firmware.bin`;
+//   const payload = `${deviceId}|${firmwareUrl}`;
+
+//   mqttClient.publish('esp32/update', payload, err => {
+//     if (err) {
+//       console.error('Error publicando firmware:', err);
+//       return res.status(500).send('Error enviando firmware al ESP32.');
+//     }
+//     console.log(`Firmware publicado para ${deviceId}: ${firmwareUrl}`);
+//     res.send(`Firmware subido y URL enviada a ${deviceId}.`);
+//   });
+// });
+
+// // ---------------------------
+// // 7) VISTA PRINCIPAL
+// // ---------------------------
+// app.get('/', (req, res) => {
+//   res.render('index', { devices: devicesData });
+// });
+
+// // Ruta JSON para ver datos en crudo
+// app.get('/devices', (req, res) => {
+//   res.json(devicesData);
+// });
+// // ---------------------------
+// // 7.1) MONITOREO DE DISPOSITIVOS DESCONECTADOS
+// // ---------------------------
+// setInterval(() => {
+//   const ahora = new Date();
+//   Object.keys(devicesData).forEach(mac => {
+//     const lastSeen = new Date(devicesData[mac].lastSeen);
+//     const diferencia = (ahora - lastSeen) / 1000; // Diferencia en segundos
+//     if (diferencia > 60) { // Si han pasado más de 60 segundos sin heartbeat
+//       devicesData[mac].status = 'offline';
+//     }
+//   });
+
+//   fs.writeFileSync(devicesFile, JSON.stringify(devicesData, null, 2));
+// }, 30000); // Ejecutar cada 30 segundos
+
+
+// // ---------------------------
+// // 8) INICIAR SERVIDOR
+// // ---------------------------
+// app.listen(PORT, () => {
+//   console.log(`Servidor corriendo en http://localhost:${PORT}`);
+// });
 // const fs = require('fs');
 // const path = require('path');
 // const express = require('express');

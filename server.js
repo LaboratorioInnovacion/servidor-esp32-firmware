@@ -13,18 +13,31 @@ const PORT = process.env.PORT || 3000;
 // ---------------------------
 const devicesFile = path.join(__dirname, 'devices.json');
 let devicesData = {};
-
+// Intentar leer el archivo si existe
 try {
   if (fs.existsSync(devicesFile)) {
-    const raw = fs.readFileSync(devicesFile);
-    devicesData = JSON.parse(raw);
-  } else {
-    devicesData = {};
+    const raw = fs.readFileSync(devicesFile, 'utf8');
+    if (raw.trim()) {
+      devicesData = JSON.parse(raw); // Solo parsear si el archivo tiene contenido
+    } else {
+      devicesData = {};
+    }
   }
 } catch (err) {
   console.error('Error leyendo devices.json:', err);
-  devicesData = {};
+  devicesData = {}; // Evitar que se borren datos si hay error
 }
+// try {
+//   if (fs.existsSync(devicesFile)) {
+//     const raw = fs.readFileSync(devicesFile);
+//     devicesData = JSON.parse(raw);
+//   } else {
+//     devicesData = {};
+//   }
+// } catch (err) {
+//   console.error('Error leyendo devices.json:', err);
+//   devicesData = {};
+// }
 
 // ---------------------------
 // 2) CONFIGURAR VISTAS EJS

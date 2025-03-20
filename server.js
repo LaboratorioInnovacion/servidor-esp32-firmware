@@ -22,8 +22,8 @@ app.use(bodyParser.json());
 // CONEXIÓN AL BROKER MQTT
 // ---------------------------
 const mqttOptions = {
-  // host: 'ad11f935a9c74146a4d2e647921bf024.s1.eu.hivemq.cloud',
-  host: '5b89b77699514c54af8285b7c1b73dd1.s1.eu.hivemq.cloud',
+  host: 'ad11f935a9c74146a4d2e647921bf024.s1.eu.hivemq.cloud',
+  // host: '5b89b77699514c54af8285b7c1b73dd1.s1.eu.hivemq.cloud',
   port: 8883,
   protocol: 'mqtts',
   username: 'Augustodelcampo97',

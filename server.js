@@ -13,7 +13,10 @@ const PORT = process.env.PORT || 3000;
 // CONEXIÓN A POSTGRES
 // ---------------------------
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://user:password@localhost:5432/mydatabase'
+  connectionString: 'postgresql://iot_firmwares_user:Uo2UxCL4hWc4KIKFS4pkIVQEKZkbEdR0@dpg-cve0csfnoe9s73ejkaog-a.oregon-postgres.render.com/iot_firmwares',
+  ssl: {
+    rejectUnauthorized: false,
+  },
 });
 // Asegúrate de reemplazar 'user:password@localhost:5432/mydatabase' con la conexión a tu DB
 

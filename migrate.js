@@ -2,7 +2,7 @@ const { Pool } = require('pg');
 
 // Configura la cadena de conexión según tu entorno
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: 'postgresql://iot_firmwares_user:Uo2UxCL4hWc4KIKFS4pkIVQEKZkbEdR0@dpg-cve0csfnoe9s73ejkaog-a.oregon-postgres.render.com/iot_firmwares',
   // Reemplaza 'user:password@localhost:5432/mydatabase' con tus datos de conexión
   ssl: {
     rejectUnauthorized: false,

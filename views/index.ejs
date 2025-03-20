@@ -1,53 +1,98 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <meta charset="UTF-8" />
-    <title>ESP32 OTA y Dispositivos</title>
-  </head>
-  <body>
-    <h1>Actualizar Firmware (OTA)</h1>
-    <form action="/update-firmware" method="POST" enctype="multipart/form-data">
-      <label>Device ID (MAC o "all"):</label>
-      <input type="text" name="deviceId" placeholder="AA:BB:CC:11:22:33" />
-      <br><br>
-      <label>Selecciona firmware (.bin):</label>
-      <input type="file" name="firmware" accept=".bin" />
-      <br><br>
-      <button type="submit">Subir y Enviar</button>
-    </form>
-
-    <hr>
-
-    <h2>Lista de Dispositivos</h2>
-    <ul>
-      <% for (let mac in devices) { %>
-        <li>
-          <strong><%= mac %></strong> - 
-          Estado: <%= devices[mac].status %> | 
-          Versión: <%= devices[mac].version %> | 
-          Nombre: <%= devices[mac].name %> | 
-          Último visto: <%= devices[mac].lastSeen %>
-        </li>
-      <% } %>
-    </ul>
-    <table>
+<head>
+  <meta charset="UTF-8">
+  <title>Dispositivos y Mediciones</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    h1 {
+      color: #333;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 40px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: left;
+    }
+    th {
+      background-color: #eee;
+    }
+    .online {
+      color: green;
+      font-weight: bold;
+    }
+    .offline {
+      color: red;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>Listado de Dispositivos</h1>
+  <table>
+    <thead>
       <tr>
         <th>MAC</th>
         <th>Nombre</th>
         <th>Estado</th>
-        <th>Última vez visto</th>
+        <th>Versión</th>
+        <th>Último Visto</th>
       </tr>
-      <% for (let mac in devices) { %>
+    </thead>
+    <tbody>
+      <% if (devices && devices.length > 0) { %>
+        <% devices.forEach(function(device) { %>
+          <tr>
+            <td><%= device.mac %></td>
+            <td><%= device.name %></td>
+            <td class="<%= device.status === 'online' ? 'online' : 'offline' %>">
+              <%= device.status %>
+            </td>
+            <td><%= device.version %></td>
+            <td><%= device.last_seen %></td>
+          </tr>
+        <% }) %>
+      <% } else { %>
         <tr>
-          <td><%= mac %></td>
-          <td><%= devices[mac].name || 'Desconocido' %></td>
-          <td style="color: <%= devices[mac].status === 'online' ? 'green' : 'red' %>">
-            <%= devices[mac].status %>
-          </td>
-          <td><%= devices[mac].lastSeen %></td>
+          <td colspan="5">No hay dispositivos registrados</td>
         </tr>
       <% } %>
-    </table>
-    
-  </body>
+    </tbody>
+  </table>
+
+  <h1>Listado de Mediciones</h1>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>MAC</th>
+        <th>Tiempo</th>
+        <th>Uptime</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% if (measurements && measurements.length > 0) { %>
+        <% measurements.forEach(function(med) { %>
+          <tr>
+            <td><%= med.id %></td>
+            <td><%= med.mac %></td>
+            <td><%= med.time %></td>
+            <td><%= med.uptime %></td>
+          </tr>
+        <% }) %>
+      <% } else { %>
+        <tr>
+          <td colspan="4">No hay mediciones registradas</td>
+        </tr>
+      <% } %>
+    </tbody>
+  </table>
+</body>
 </html>

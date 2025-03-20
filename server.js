@@ -174,15 +174,29 @@ app.post('/update-firmware', upload.single('firmware'), (req, res) => {
 // ---------------------------
 // 7) VISTA PRINCIPAL
 // ---------------------------
+// app.get('/', async (req, res) => {
+//   try {
+//     const result = await pool.query('SELECT * FROM devices ORDER BY last_seen DESC');
+//     res.render('index', { devices: result.rows });
+//   } catch (err) {
+//     console.error('Error consultando la DB:', err);
+//     res.status(500).send('Error al consultar la DB.');
+//   }
+// });
 app.get('/', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM devices ORDER BY last_seen DESC');
-    res.render('index', { devices: result.rows });
+    const devicesResult = await pool.query('SELECT * FROM devices ORDER BY last_seen DESC');
+    const measurementsResult = await pool.query('SELECT * FROM measurements ORDER BY time DESC');
+    res.render('index', { 
+      devices: devicesResult.rows, 
+      measurements: measurementsResult.rows 
+    });
   } catch (err) {
     console.error('Error consultando la DB:', err);
     res.status(500).send('Error al consultar la DB.');
   }
 });
+
 
 app.get('/devices', async (req, res) => {
   try {

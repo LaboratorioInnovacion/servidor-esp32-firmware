@@ -1,284 +1,22 @@
-const express = require('express');
-const bodyParser = require('body-parser');
-const mqtt = require('mqtt');
-const multer = require('multer');
-const path = require('path');
-
-// Importar PrismaClient
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
-
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-// Configurar vistas EJS
-app.set('view engine', 'ejs');
-app.set('views', path.join(__dirname, 'views'));
-
-app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json());
-
-// ---------------------------
-// CONEXIÓN AL BROKER MQTT
-// ---------------------------
-const mqttOptions = {
-  host: 'ad11f935a9c74146a4d2e647921bf024.s1.eu.hivemq.cloud',
-  port: 8883,
-  protocol: 'mqtts',
-  username: 'Augustodelcampo97',
-  password: 'Augustodelcampo97'
-};
-
-const mqttClient = mqtt.connect(mqttOptions);
-
-mqttClient.on('connect', () => {
-  console.log('MQTT conectado');
-  mqttClient.subscribe('esp32/status');
-  mqttClient.subscribe('esp32/heartbeat');
-});
-
-mqttClient.on('error', err => {
-  console.error('Error en MQTT:', err);
-});
-
-// ---------------------------
-// FUNCIÓN PARA FORMATEAR FECHAS (HORARIO ARGENTINO)
-// ---------------------------
-function formatearFecha(fecha) {
-  // Asume que 'fecha' es un objeto Date
-  return new Intl.DateTimeFormat('es-AR', {
-    timeZone: 'America/Argentina/Buenos_Aires',
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit'
-  }).format(fecha);
-}
-
-// ---------------------------
-// MANEJO DE MENSAJES MQTT CON PRISMA
-// ---------------------------
-mqttClient.on('message', async (topic, message) => {
-  try {
-    const payload = JSON.parse(message.toString());
-    const mac = payload.mac || 'unknown';
-
-    if (topic === 'esp32/status') {
-      const name = payload.name || '';
-      const status = payload.status || 'desconocido';
-      const version = payload.version || '';
-
-      // Inserta o actualiza el dispositivo en la base de datos
-      await prisma.device.upsert({
-        where: { mac },
-        update: {
-          name,
-          status,
-          version,
-          lastSeen: new Date() // Se almacena en UTC; luego se formatea
-        },
-        create: {
-          mac,
-          name,
-          status,
-          version,
-          lastSeen: new Date()
-        }
-      });
-
-      console.log(`Dispositivo ${mac} actualizado a estado "${status}", v:${version}`);
-
-    } else if (topic === 'esp32/heartbeat') {
-      const name = payload.name || '';
-
-      // Actualiza o inserta el dispositivo con estado "online"
-      await prisma.device.upsert({
-        where: { mac },
-        update: {
-          name,
-          status: 'online',
-          lastSeen: new Date()
-        },
-        create: {
-          mac,
-          name,
-          status: 'online',
-          lastSeen: new Date()
-        }
-      });
-
-      console.log(`Heartbeat recibido de ${mac} => nombre: ${name}`);
-
-      // Insertar medición si se proporciona uptime
-      if (payload.uptime) {
-        await prisma.measurement.create({
-          data: {
-            mac,
-            time: new Date(),
-            uptime: parseInt(payload.uptime)
-          }
-        });
-      }
-    }
-  } catch (err) {
-    console.error('Error parseando mensaje MQTT:', err);
-  }
-});
-
-// ---------------------------
-// SUBIR FIRMWARE (OTA)
-// ---------------------------
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, 'uploads/'),
-  filename: (req, file, cb) => cb(null, 'firmware.bin')
-});
-const upload = multer({ storage });
-
-app.use('/firmware', express.static(path.join(__dirname, 'uploads')));
-
-app.post('/update-firmware', upload.single('firmware'), (req, res) => {
-  const deviceId = req.body.deviceId || 'all';
-  const baseUrl = 'https://servidor-esp32.onrender.com';
-  const firmwareUrl = `${baseUrl}/firmware/firmware.bin`;
-  const payload = `${deviceId}|${firmwareUrl}`;
-
-  mqttClient.publish('esp32/update', payload, err => {
-    if (err) {
-      console.error('Error publicando firmware:', err);
-      return res.status(500).send('Error enviando firmware al ESP32.');
-    }
-    console.log(`Firmware publicado para ${deviceId}: ${firmwareUrl}`);
-    res.send(`Firmware subido y URL enviada a ${deviceId}.`);
-  });
-});
-
-// ---------------------------
-// VISTA PRINCIPAL (en español) – Mostrar Dispositivos y Mediciones
-// ---------------------------
-app.get('/', async (req, res) => {
-  try {
-    // Consulta de dispositivos
-    const dispositivos = await prisma.device.findMany({
-      orderBy: { lastSeen: 'desc' }
-    });
-
-    // Consulta de mediciones
-    const mediciones = await prisma.measurement.findMany({
-      orderBy: { time: 'desc' }
-    });
-
-    // Convertir fechas a horario argentino en el servidor
-    const dispositivosFormateados = dispositivos.map(d => ({
-      ...d,
-      lastSeen: d.lastSeen ? formatearFecha(d.lastSeen) : ''
-    }));
-
-    const medicionesFormateadas = mediciones.map(m => ({
-      ...m,
-      time: m.time ? formatearFecha(m.time) : ''
-    }));
-
-    res.render('index', { dispositivos: dispositivosFormateados, mediciones: medicionesFormateadas });
-  } catch (err) {
-    console.error('Error consultando la DB:', err);
-    res.status(500).send('Error al consultar la base de datos.');
-  }
-});
-
-// Endpoint JSON para dispositivos
-app.get('/devices', async (req, res) => {
-  try {
-    const dispositivos = await prisma.device.findMany({
-      orderBy: { lastSeen: 'desc' }
-    });
-    res.json(dispositivos);
-  } catch (err) {
-    console.error('Error consultando la DB:', err);
-    res.status(500).send('Error al consultar la base de datos.');
-  }
-});
-
-// ---------------------------
-// MONITOREO DE DISPOSITIVOS DESCONECTADOS
-// ---------------------------
-setInterval(async () => {
-  try {
-    // Marca dispositivos como offline si no se han visto en los últimos 60 segundos.
-    // Esto se puede ajustar según tus necesidades.
-    await prisma.$executeRaw`
-      UPDATE "Device"
-      SET status = 'offline'
-      WHERE lastSeen < (NOW() - INTERVAL '60 seconds')
-    `;
-    console.log('Se han marcado dispositivos como offline');
-  } catch (err) {
-    console.error('Error actualizando dispositivos offline:', err);
-  }
-}, 30000);
-
-// ---------------------------
-// INICIAR SERVIDOR
-// ---------------------------
-app.listen(PORT, () => {
-  console.log(`Servidor corriendo en http://localhost:${PORT}`);
-});
-
-//CODIGO ACTUALIZADO CON DB FUNCIONAL PREMIUN GOLD TRIPLEX
-// const fs = require('fs');
-// const path = require('path');
 // const express = require('express');
 // const bodyParser = require('body-parser');
 // const mqtt = require('mqtt');
 // const multer = require('multer');
-// const { Pool } = require('pg');
+// const path = require('path');
+
+// // Importar PrismaClient
+// const { PrismaClient } = require('@prisma/client');
+// const prisma = new PrismaClient();
 
 // const app = express();
 // const PORT = process.env.PORT || 3000;
 
-// // ---------------------------
-// // CONEXIÓN A POSTGRES
-// // ---------------------------
-// const pool = new Pool({
-//   connectionString: 'postgresql://iot_firmwares_user:Uo2UxCL4hWc4KIKFS4pkIVQEKZkbEdR0@dpg-cve0csfnoe9s73ejkaog-a.oregon-postgres.render.com/iot_firmwares',
-//     ssl: {
-//     rejectUnauthorized: false,
-//   },
-// });
-// // Reemplaza 'user:password@localhost:5432/mydatabase' con tu cadena de conexión
-
-// // ---------------------------
-// // CONFIGURAR VISTAS EJS
-// // ---------------------------
+// // Configurar vistas EJS
 // app.set('view engine', 'ejs');
 // app.set('views', path.join(__dirname, 'views'));
 
 // app.use(bodyParser.urlencoded({ extended: false }));
 // app.use(bodyParser.json());
-// // Configurar la sesión para usar el huso horario de Argentina
-// pool.query("SET TIME ZONE 'America/Argentina/Buenos_Aires'", (err) => {
-//   if (err) {
-//     console.error('Error configurando el timezone en la DB:', err);
-//   } else {
-//     console.log('Timezone configurado a America/Argentina/Buenos_Aires');
-//   }
-// });
-// // Endpoint para ver los dispositivos en crudo (JSON)
-// app.get('/devices-json', async (req, res) => {
-//   try {
-//     // Se formatea la fecha en horario argentino en la consulta
-//     const result = await pool.query(
-//       `SELECT mac, name, status, version,
-//               to_char(last_seen AT TIME ZONE 'America/Argentina/Buenos_Aires', 'DD/MM/YYYY HH24:MI:SS') AS last_seen
-//          FROM devices ORDER BY last_seen DESC`
-//     );
-//     res.json(result.rows);
-//   } catch (err) {
-//     console.error('Error consultando la DB:', err);
-//     res.status(500).send('Error al consultar la DB.');
-//   }
-// });
 
 // // ---------------------------
 // // CONEXIÓN AL BROKER MQTT
@@ -295,7 +33,6 @@ app.listen(PORT, () => {
 
 // mqttClient.on('connect', () => {
 //   console.log('MQTT conectado');
-//   // Suscribirse a los tópicos de estado y heartbeat
 //   mqttClient.subscribe('esp32/status');
 //   mqttClient.subscribe('esp32/heartbeat');
 // });
@@ -305,27 +42,25 @@ app.listen(PORT, () => {
 // });
 
 // // ---------------------------
-// // FUNCIÓN PARA OBTENER LA FECHA EN HORARIO ARGENTINO
+// // FUNCIÓN PARA FORMATEAR FECHAS (HORARIO ARGENTINO)
 // // ---------------------------
-// function getArgentinaTime() {
-//   // Para los inserts, usamos la función SQL NOW() AT TIME ZONE
-//   // pero en JavaScript podrías formatear la fecha si lo requieres.
-//   const options = {
+// function formatearFecha(fecha) {
+//   // Asume que 'fecha' es un objeto Date
+//   return new Intl.DateTimeFormat('es-AR', {
 //     timeZone: 'America/Argentina/Buenos_Aires',
-//     year: 'numeric',
-//     month: '2-digit',
 //     day: '2-digit',
+//     month: '2-digit',
+//     year: 'numeric',
 //     hour: '2-digit',
 //     minute: '2-digit',
 //     second: '2-digit'
-//   };
-//   return new Intl.DateTimeFormat('es-AR', options).format(new Date());
+//   }).format(fecha);
 // }
 
 // // ---------------------------
-// // MANEJO DE MENSAJES MQTT
+// // MANEJO DE MENSAJES MQTT CON PRISMA
 // // ---------------------------
-// mqttClient.on('message', (topic, message) => {
+// mqttClient.on('message', async (topic, message) => {
 //   try {
 //     const payload = JSON.parse(message.toString());
 //     const mac = payload.mac || 'unknown';
@@ -335,50 +70,56 @@ app.listen(PORT, () => {
 //       const status = payload.status || 'desconocido';
 //       const version = payload.version || '';
 
-//       // Insertar o actualizar el dispositivo (se usa NOW() AT TIME ZONE para horario argentino)
-//       pool.query(
-//         `INSERT INTO devices (mac, name, status, version, last_seen) 
-//          VALUES ($1, $2, $3, $4, NOW() AT TIME ZONE 'America/Argentina/Buenos_Aires') 
-//          ON CONFLICT (mac) DO UPDATE SET 
-//            name = $2, status = $3, version = $4, last_seen = NOW() AT TIME ZONE 'America/Argentina/Buenos_Aires'`,
-//         [mac, name, status, version],
-//         (err) => {
-//           if (err) {
-//             console.error('Error actualizando dispositivo:', err);
-//           } else {
-//             console.log(`Dispositivo ${mac} actualizado a estado "${status}", v:${version}`);
-//           }
+//       // Inserta o actualiza el dispositivo en la base de datos
+//       await prisma.device.upsert({
+//         where: { mac },
+//         update: {
+//           name,
+//           status,
+//           version,
+//           lastSeen: new Date() // Se almacena en UTC; luego se formatea
+//         },
+//         create: {
+//           mac,
+//           name,
+//           status,
+//           version,
+//           lastSeen: new Date()
 //         }
-//       );
+//       });
+
+//       console.log(`Dispositivo ${mac} actualizado a estado "${status}", v:${version}`);
+
 //     } else if (topic === 'esp32/heartbeat') {
 //       const name = payload.name || '';
 
-//       // Actualizar el dispositivo a estado online y actualizar last_seen
-//       pool.query(
-//         `INSERT INTO devices (mac, name, status, last_seen) 
-//          VALUES ($1, $2, 'online', NOW() AT TIME ZONE 'America/Argentina/Buenos_Aires') 
-//          ON CONFLICT (mac) DO UPDATE SET 
-//            name = $2, status = 'online', last_seen = NOW() AT TIME ZONE 'America/Argentina/Buenos_Aires'`,
-//         [mac, name],
-//         (err) => {
-//           if (err) {
-//             console.error('Error actualizando heartbeat del dispositivo:', err);
-//           } else {
-//             console.log(`Heartbeat recibido de ${mac} => nombre: ${name}`);
-//           }
+//       // Actualiza o inserta el dispositivo con estado "online"
+//       await prisma.device.upsert({
+//         where: { mac },
+//         update: {
+//           name,
+//           status: 'online',
+//           lastSeen: new Date()
+//         },
+//         create: {
+//           mac,
+//           name,
+//           status: 'online',
+//           lastSeen: new Date()
 //         }
-//       );
+//       });
+
+//       console.log(`Heartbeat recibido de ${mac} => nombre: ${name}`);
+
 //       // Insertar medición si se proporciona uptime
 //       if (payload.uptime) {
-//         pool.query(
-//           `INSERT INTO measurements (mac, time, uptime) VALUES ($1, NOW() AT TIME ZONE 'America/Argentina/Buenos_Aires', $2)`,
-//           [mac, payload.uptime],
-//           (err) => {
-//             if (err) {
-//               console.error('Error insertando medición:', err);
-//             }
+//         await prisma.measurement.create({
+//           data: {
+//             mac,
+//             time: new Date(),
+//             uptime: parseInt(payload.uptime)
 //           }
-//         );
+//         });
 //       }
 //     }
 //   } catch (err) {
@@ -414,17 +155,301 @@ app.listen(PORT, () => {
 // });
 
 // // ---------------------------
-// // VISTA PRINCIPAL (en español)
+// // VISTA PRINCIPAL (en español) – Mostrar Dispositivos y Mediciones
 // // ---------------------------
 // app.get('/', async (req, res) => {
 //   try {
-//     // Consulta de dispositivos: ya se usará el timezone configurado en la sesión
+//     // Consulta de dispositivos
+//     const dispositivos = await prisma.device.findMany({
+//       orderBy: { lastSeen: 'desc' }
+//     });
+
+//     // Consulta de mediciones
+//     const mediciones = await prisma.measurement.findMany({
+//       orderBy: { time: 'desc' }
+//     });
+
+//     // Convertir fechas a horario argentino en el servidor
+//     const dispositivosFormateados = dispositivos.map(d => ({
+//       ...d,
+//       lastSeen: d.lastSeen ? formatearFecha(d.lastSeen) : ''
+//     }));
+
+//     const medicionesFormateadas = mediciones.map(m => ({
+//       ...m,
+//       time: m.time ? formatearFecha(m.time) : ''
+//     }));
+
+//     res.render('index', { dispositivos: dispositivosFormateados, mediciones: medicionesFormateadas });
+//   } catch (err) {
+//     console.error('Error consultando la DB:', err);
+//     res.status(500).send('Error al consultar la base de datos.');
+//   }
+// });
+
+// // Endpoint JSON para dispositivos
+// app.get('/devices', async (req, res) => {
+//   try {
+//     const dispositivos = await prisma.device.findMany({
+//       orderBy: { lastSeen: 'desc' }
+//     });
+//     res.json(dispositivos);
+//   } catch (err) {
+//     console.error('Error consultando la DB:', err);
+//     res.status(500).send('Error al consultar la base de datos.');
+//   }
+// });
+
+// // ---------------------------
+// // MONITOREO DE DISPOSITIVOS DESCONECTADOS
+// // ---------------------------
+// setInterval(async () => {
+//   try {
+//     // Marca dispositivos como offline si no se han visto en los últimos 60 segundos.
+//     // Esto se puede ajustar según tus necesidades.
+//     await prisma.$executeRaw`
+//       UPDATE "Device"
+//       SET status = 'offline'
+//       WHERE lastSeen < (NOW() - INTERVAL '60 seconds')
+//     `;
+//     console.log('Se han marcado dispositivos como offline');
+//   } catch (err) {
+//     console.error('Error actualizando dispositivos offline:', err);
+//   }
+// }, 30000);
+
+// // ---------------------------
+// // INICIAR SERVIDOR
+// // ---------------------------
+// app.listen(PORT, () => {
+//   console.log(`Servidor corriendo en http://localhost:${PORT}`);
+// });
+
+//CODIGO ACTUALIZADO CON DB FUNCIONAL PREMIUN GOLD TRIPLEX
+const fs = require('fs');
+const path = require('path');
+const express = require('express');
+const bodyParser = require('body-parser');
+const mqtt = require('mqtt');
+const multer = require('multer');
+const { Pool } = require('pg');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// ---------------------------
+// CONEXIÓN A POSTGRES
+// ---------------------------
+const pool = new Pool({
+  connectionString: 'postgresql://iot_firmwares_user:Uo2UxCL4hWc4KIKFS4pkIVQEKZkbEdR0@dpg-cve0csfnoe9s73ejkaog-a.oregon-postgres.render.com/iot_firmwares',
+    ssl: {
+    rejectUnauthorized: false,
+  },
+});
+// Reemplaza 'user:password@localhost:5432/mydatabase' con tu cadena de conexión
+
+// ---------------------------
+// CONFIGURAR VISTAS EJS
+// ---------------------------
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
+
+app.use(bodyParser.urlencoded({ extended: false }));
+app.use(bodyParser.json());
+// Configurar la sesión para usar el huso horario de Argentina
+pool.query("SET TIME ZONE 'America/Argentina/Buenos_Aires'", (err) => {
+  if (err) {
+    console.error('Error configurando el timezone en la DB:', err);
+  } else {
+    console.log('Timezone configurado a America/Argentina/Buenos_Aires');
+  }
+});
+// Endpoint para ver los dispositivos en crudo (JSON)
+app.get('/devices-json', async (req, res) => {
+  try {
+    // Se formatea la fecha en horario argentino en la consulta
+    const result = await pool.query(
+      `SELECT mac, name, status, version,
+              to_char(last_seen AT TIME ZONE 'America/Argentina/Buenos_Aires', 'DD/MM/YYYY HH24:MI:SS') AS last_seen
+         FROM devices ORDER BY last_seen DESC`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error consultando la DB:', err);
+    res.status(500).send('Error al consultar la DB.');
+  }
+});
+
+// ---------------------------
+// CONEXIÓN AL BROKER MQTT
+// ---------------------------
+const mqttOptions = {
+  host: 'ad11f935a9c74146a4d2e647921bf024.s1.eu.hivemq.cloud',
+  port: 8883,
+  protocol: 'mqtts',
+  username: 'Augustodelcampo97',
+  password: 'Augustodelcampo97'
+};
+
+const mqttClient = mqtt.connect(mqttOptions);
+
+mqttClient.on('connect', () => {
+  console.log('MQTT conectado');
+  // Suscribirse a los tópicos de estado y heartbeat
+  mqttClient.subscribe('esp32/status');
+  mqttClient.subscribe('esp32/heartbeat');
+});
+
+mqttClient.on('error', err => {
+  console.error('Error en MQTT:', err);
+});
+
+// ---------------------------
+// FUNCIÓN PARA OBTENER LA FECHA EN HORARIO ARGENTINO
+// ---------------------------
+function getArgentinaTime() {
+  // Para los inserts, usamos la función SQL NOW() AT TIME ZONE
+  // pero en JavaScript podrías formatear la fecha si lo requieres.
+  const options = {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  };
+  return new Intl.DateTimeFormat('es-AR', options).format(new Date());
+}
+
+// ---------------------------
+// MANEJO DE MENSAJES MQTT
+// ---------------------------
+mqttClient.on('message', (topic, message) => {
+  try {
+    const payload = JSON.parse(message.toString());
+    const mac = payload.mac || 'unknown';
+
+    if (topic === 'esp32/status') {
+      const name = payload.name || '';
+      const status = payload.status || 'desconocido';
+      const version = payload.version || '';
+
+      // Insertar o actualizar el dispositivo (se usa NOW() AT TIME ZONE para horario argentino)
+      pool.query(
+        `INSERT INTO devices (mac, name, status, version, last_seen) 
+         VALUES ($1, $2, $3, $4, NOW() AT TIME ZONE 'America/Argentina/Buenos_Aires') 
+         ON CONFLICT (mac) DO UPDATE SET 
+           name = $2, status = $3, version = $4, last_seen = NOW() AT TIME ZONE 'America/Argentina/Buenos_Aires'`,
+        [mac, name, status, version],
+        (err) => {
+          if (err) {
+            console.error('Error actualizando dispositivo:', err);
+          } else {
+            console.log(`Dispositivo ${mac} actualizado a estado "${status}", v:${version}`);
+          }
+        }
+      );
+    } else if (topic === 'esp32/heartbeat') {
+      const name = payload.name || '';
+
+      // Actualizar el dispositivo a estado online y actualizar last_seen
+      pool.query(
+        `INSERT INTO devices (mac, name, status, last_seen) 
+         VALUES ($1, $2, 'online', NOW() AT TIME ZONE 'America/Argentina/Buenos_Aires') 
+         ON CONFLICT (mac) DO UPDATE SET 
+           name = $2, status = 'online', last_seen = NOW() AT TIME ZONE 'America/Argentina/Buenos_Aires'`,
+        [mac, name],
+        (err) => {
+          if (err) {
+            console.error('Error actualizando heartbeat del dispositivo:', err);
+          } else {
+            console.log(`Heartbeat recibido de ${mac} => nombre: ${name}`);
+          }
+        }
+      );
+      // Insertar medición si se proporciona uptime
+      if (payload.uptime) {
+        pool.query(
+          `INSERT INTO measurements (mac, time, uptime) VALUES ($1, NOW() AT TIME ZONE 'America/Argentina/Buenos_Aires', $2)`,
+          [mac, payload.uptime],
+          (err) => {
+            if (err) {
+              console.error('Error insertando medición:', err);
+            }
+          }
+        );
+      }
+    }
+  } catch (err) {
+    console.error('Error parseando mensaje MQTT:', err);
+  }
+});
+
+// ---------------------------
+// SUBIR FIRMWARE (OTA)
+// ---------------------------
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, 'uploads/'),
+  filename: (req, file, cb) => cb(null, 'firmware.bin')
+});
+const upload = multer({ storage });
+
+app.use('/firmware', express.static(path.join(__dirname, 'uploads')));
+
+app.post('/update-firmware', upload.single('firmware'), (req, res) => {
+  const deviceId = req.body.deviceId || 'all';
+  const baseUrl = 'https://servidor-esp32.onrender.com';
+  const firmwareUrl = `${baseUrl}/firmware/firmware.bin`;
+  const payload = `${deviceId}|${firmwareUrl}`;
+
+  mqttClient.publish('esp32/update', payload, err => {
+    if (err) {
+      console.error('Error publicando firmware:', err);
+      return res.status(500).send('Error enviando firmware al ESP32.');
+    }
+    console.log(`Firmware publicado para ${deviceId}: ${firmwareUrl}`);
+    res.send(`Firmware subido y URL enviada a ${deviceId}.`);
+  });
+});
+
+// ---------------------------
+// VISTA PRINCIPAL (en español)
+// ---------------------------
+app.get('/', async (req, res) => {
+  try {
+    // Consulta de dispositivos: ya se usará el timezone configurado en la sesión
+    const devicesResult = await pool.query(
+      `SELECT mac, name, status, version,
+              to_char(last_seen, 'DD/MM/YYYY HH24:MI:SS') AS last_seen
+         FROM devices ORDER BY last_seen DESC`
+    );
+    // Consulta de mediciones: ya se usará el timezone configurado en la sesión
+    const measurementsResult = await pool.query(
+      `SELECT id, mac,
+              to_char(time, 'DD/MM/YYYY HH24:MI:SS') AS time,
+              uptime
+         FROM measurements ORDER BY time DESC`
+    );
+    res.render('index', { 
+      dispositivos: devicesResult.rows, 
+      mediciones: measurementsResult.rows 
+    });
+  } catch (err) {
+    console.error('Error consultando la DB:', err);
+    res.status(500).send('Error al consultar la base de datos.');
+  }
+});
+
+// app.get('/', async (req, res) => {
+//   try {
+//     // Consulta de dispositivos: formatea la fecha en horario argentino
 //     const devicesResult = await pool.query(
 //       `SELECT mac, name, status, version,
 //               to_char(last_seen, 'DD/MM/YYYY HH24:MI:SS') AS last_seen
 //          FROM devices ORDER BY last_seen DESC`
 //     );
-//     // Consulta de mediciones: ya se usará el timezone configurado en la sesión
+//     // Consulta de mediciones: formatea la fecha en horario argentino
 //     const measurementsResult = await pool.query(
 //       `SELECT id, mac,
 //               to_char(time, 'DD/MM/YYYY HH24:MI:SS') AS time,
@@ -441,69 +466,45 @@ app.listen(PORT, () => {
 //   }
 // });
 
-// // app.get('/', async (req, res) => {
-// //   try {
-// //     // Consulta de dispositivos: formatea la fecha en horario argentino
-// //     const devicesResult = await pool.query(
-// //       `SELECT mac, name, status, version,
-// //               to_char(last_seen, 'DD/MM/YYYY HH24:MI:SS') AS last_seen
-// //          FROM devices ORDER BY last_seen DESC`
-// //     );
-// //     // Consulta de mediciones: formatea la fecha en horario argentino
-// //     const measurementsResult = await pool.query(
-// //       `SELECT id, mac,
-// //               to_char(time, 'DD/MM/YYYY HH24:MI:SS') AS time,
-// //               uptime
-// //          FROM measurements ORDER BY time DESC`
-// //     );
-// //     res.render('index', { 
-// //       dispositivos: devicesResult.rows, 
-// //       mediciones: measurementsResult.rows 
-// //     });
-// //   } catch (err) {
-// //     console.error('Error consultando la DB:', err);
-// //     res.status(500).send('Error al consultar la base de datos.');
-// //   }
-// // });
+app.get('/devices', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT mac, name, status, version,
+              to_char(last_seen, 'DD/MM/YYYY HH24:MI:SS') AS last_seen
+         FROM devices ORDER BY last_seen DESC`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error consultando la DB:', err);
+    res.status(500).send('Error al consultar la base de datos.');
+  }
+});
 
-// app.get('/devices', async (req, res) => {
-//   try {
-//     const result = await pool.query(
-//       `SELECT mac, name, status, version,
-//               to_char(last_seen, 'DD/MM/YYYY HH24:MI:SS') AS last_seen
-//          FROM devices ORDER BY last_seen DESC`
-//     );
-//     res.json(result.rows);
-//   } catch (err) {
-//     console.error('Error consultando la DB:', err);
-//     res.status(500).send('Error al consultar la base de datos.');
-//   }
-// });
+// ---------------------------
+// MONITOREO DE DISPOSITIVOS DESCONECTADOS
+// ---------------------------
+setInterval(() => {
+  pool.query(
+    `UPDATE devices SET status = 'offline'
+     WHERE last_seen < NOW() AT TIME ZONE 'America/Argentina/Buenos_Aires' - INTERVAL '60 seconds'`,
+    (err) => {
+      if (err) {
+        console.error('Error actualizando dispositivos offline:', err);
+      } else {
+        console.log('Se han marcado dispositivos como offline');
+      }
+    }
+  );
+}, 30000); // Ejecuta cada 30 segundos
 
-// // ---------------------------
-// // MONITOREO DE DISPOSITIVOS DESCONECTADOS
-// // ---------------------------
-// setInterval(() => {
-//   pool.query(
-//     `UPDATE devices SET status = 'offline'
-//      WHERE last_seen < NOW() AT TIME ZONE 'America/Argentina/Buenos_Aires' - INTERVAL '60 seconds'`,
-//     (err) => {
-//       if (err) {
-//         console.error('Error actualizando dispositivos offline:', err);
-//       } else {
-//         console.log('Se han marcado dispositivos como offline');
-//       }
-//     }
-//   );
-// }, 30000); // Ejecuta cada 30 segundos
+// ---------------------------
+// INICIAR SERVIDOR
+// ---------------------------
+app.listen(PORT, () => {
+  console.log(`Servidor corriendo en http://localhost:${PORT}`);
+});
 
-// // ---------------------------
-// // INICIAR SERVIDOR
-// // ---------------------------
-// app.listen(PORT, () => {
-//   console.log(`Servidor corriendo en http://localhost:${PORT}`);
-// });
-
+//TERMINAAAAAAAAAAAAAAAAAAAAAA
 // const fs = require('fs');
 // const path = require('path');
 // const express = require('express');

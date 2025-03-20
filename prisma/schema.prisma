@@ -1,0 +1,25 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Device {
+  mac          String        @id
+  name         String?
+  status       String?
+  version      String?
+  lastSeen     DateTime?
+  measurements Measurement[]
+}
+
+model Measurement {
+  id      Int      @id @default(autoincrement())
+  mac     String
+  time    DateTime?
+  uptime  Int?
+  device  Device   @relation(fields: [mac], references: [mac])
+}

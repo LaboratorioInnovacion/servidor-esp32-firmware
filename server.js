@@ -211,7 +211,7 @@ setInterval(async () => {
     await prisma.$executeRaw`
       UPDATE "Device"
       SET status = 'offline'
-      WHERE lastSeen < (NOW() - INTERVAL '60 seconds')
+      WHERE "lastSeen" < (NOW() - INTERVAL '60 seconds')
     `;
     console.log('Se han marcado dispositivos como offline');
   } catch (err) {

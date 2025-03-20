@@ -28,7 +28,14 @@ app.set('views', path.join(__dirname, 'views'));
 
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
-
+// Configurar la sesión para usar el huso horario de Argentina
+pool.query("SET TIME ZONE 'America/Argentina/Buenos_Aires'", (err) => {
+  if (err) {
+    console.error('Error configurando el timezone en la DB:', err);
+  } else {
+    console.log('Timezone configurado a America/Argentina/Buenos_Aires');
+  }
+});
 // Endpoint para ver los dispositivos en crudo (JSON)
 app.get('/devices-json', async (req, res) => {
   try {
@@ -183,13 +190,13 @@ app.post('/update-firmware', upload.single('firmware'), (req, res) => {
 // ---------------------------
 app.get('/', async (req, res) => {
   try {
-    // Consulta de dispositivos: formatea la fecha en horario argentino
+    // Consulta de dispositivos: ya se usará el timezone configurado en la sesión
     const devicesResult = await pool.query(
       `SELECT mac, name, status, version,
               to_char(last_seen, 'DD/MM/YYYY HH24:MI:SS') AS last_seen
          FROM devices ORDER BY last_seen DESC`
     );
-    // Consulta de mediciones: formatea la fecha en horario argentino
+    // Consulta de mediciones: ya se usará el timezone configurado en la sesión
     const measurementsResult = await pool.query(
       `SELECT id, mac,
               to_char(time, 'DD/MM/YYYY HH24:MI:SS') AS time,
@@ -205,6 +212,31 @@ app.get('/', async (req, res) => {
     res.status(500).send('Error al consultar la base de datos.');
   }
 });
+
+// app.get('/', async (req, res) => {
+//   try {
+//     // Consulta de dispositivos: formatea la fecha en horario argentino
+//     const devicesResult = await pool.query(
+//       `SELECT mac, name, status, version,
+//               to_char(last_seen, 'DD/MM/YYYY HH24:MI:SS') AS last_seen
+//          FROM devices ORDER BY last_seen DESC`
+//     );
+//     // Consulta de mediciones: formatea la fecha en horario argentino
+//     const measurementsResult = await pool.query(
+//       `SELECT id, mac,
+//               to_char(time, 'DD/MM/YYYY HH24:MI:SS') AS time,
+//               uptime
+//          FROM measurements ORDER BY time DESC`
+//     );
+//     res.render('index', { 
+//       dispositivos: devicesResult.rows, 
+//       mediciones: measurementsResult.rows 
+//     });
+//   } catch (err) {
+//     console.error('Error consultando la DB:', err);
+//     res.status(500).send('Error al consultar la base de datos.');
+//   }
+// });
 
 app.get('/devices', async (req, res) => {
   try {

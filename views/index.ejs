@@ -1,12 +1,13 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Dispositivos y Mediciones</title>
+  <title>Panel de Dispositivos y Mediciones</title>
   <style>
     body {
       font-family: Arial, sans-serif;
       margin: 20px;
+      background: #f7f7f7;
     }
     h1 {
       color: #333;
@@ -15,6 +16,7 @@
       width: 100%;
       border-collapse: collapse;
       margin-bottom: 40px;
+      background: #fff;
     }
     th, td {
       border: 1px solid #ccc;
@@ -47,16 +49,16 @@
       </tr>
     </thead>
     <tbody>
-      <% if (devices && devices.length > 0) { %>
-        <% devices.forEach(function(device) { %>
+      <% if (dispositivos && dispositivos.length > 0) { %>
+        <% dispositivos.forEach(function(dispositivo) { %>
           <tr>
-            <td><%= device.mac %></td>
-            <td><%= device.name %></td>
-            <td class="<%= device.status === 'online' ? 'online' : 'offline' %>">
-              <%= device.status %>
+            <td><%= dispositivo.mac %></td>
+            <td><%= dispositivo.name %></td>
+            <td class="<%= dispositivo.status === 'online' ? 'online' : 'offline' %>">
+              <%= dispositivo.status %>
             </td>
-            <td><%= device.version %></td>
-            <td><%= device.last_seen %></td>
+            <td><%= dispositivo.version %></td>
+            <td><%= dispositivo.last_seen %></td>
           </tr>
         <% }) %>
       <% } else { %>
@@ -78,13 +80,13 @@
       </tr>
     </thead>
     <tbody>
-      <% if (measurements && measurements.length > 0) { %>
-        <% measurements.forEach(function(med) { %>
+      <% if (mediciones && mediciones.length > 0) { %>
+        <% mediciones.forEach(function(medicion) { %>
           <tr>
-            <td><%= med.id %></td>
-            <td><%= med.mac %></td>
-            <td><%= med.time %></td>
-            <td><%= med.uptime %></td>
+            <td><%= medicion.id %></td>
+            <td><%= medicion.mac %></td>
+            <td><%= medicion.time %></td>
+            <td><%= medicion.uptime %></td>
           </tr>
         <% }) %>
       <% } else { %>

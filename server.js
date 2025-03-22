@@ -72,7 +72,7 @@ function formatearFecha(fecha) {
 // ---------------------------
 mqttClient.on('message', async (topic, message) => {
   try {
-    io.emit('log', `Mensaje MQTT recibido en websocket ${topic}: ${msg}`);
+    const msg = message.toString();  // Asegúrate de definir msg
 
     const payload = JSON.parse(message.toString());
     const mac = payload.mac || 'unknown';
@@ -134,6 +134,8 @@ mqttClient.on('message', async (topic, message) => {
         });
       }
     }
+    io.emit('log', `Mensaje MQTT recibido en websocket ${topic}: ${msg}`);
+
   } catch (err) {
     console.error('Error parseando mensaje MQTT:', err);
   }

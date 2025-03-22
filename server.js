@@ -11,6 +11,8 @@ const prisma = new PrismaClient();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const server = http.createServer(app);
+
 const io = socketIo(server); // Inicializar Socket.IO
 
 

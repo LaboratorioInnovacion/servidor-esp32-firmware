@@ -42,7 +42,9 @@ mqttClient.on('connect', () => {
 });
 
 mqttClient.on('error', err => {
+  io.emit('log', `Error websocket en MQTT (firmware): ${err}`);
   console.error('Error en MQTT:', err);
+  
 });
 
 // ---------------------------
@@ -66,6 +68,8 @@ function formatearFecha(fecha) {
 // ---------------------------
 mqttClient.on('message', async (topic, message) => {
   try {
+    io.emit('log', `Mensaje MQTT recibido en websocket ${topic}: ${msg}`);
+
     const payload = JSON.parse(message.toString());
     const mac = payload.mac || 'unknown';
 
@@ -150,6 +154,7 @@ app.post('/update-firmware', upload.single('firmware'), (req, res) => {
 
   mqttClient.publish('esp32/update', payload, err => {
     if (err) {
+      io.emit('log', "MQTT (firmware) conectado websocket");
       console.error('Error publicando firmware:', err);
       return res.status(500).send('Error enviando firmware al ESP32.');
     }

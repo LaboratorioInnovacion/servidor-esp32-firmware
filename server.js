@@ -165,7 +165,7 @@ app.post('/update-firmware', upload.single('firmware'), (req, res) => {
       return res.status(500).send('Error enviando firmware al ESP32.');
     }
     console.log(`Firmware publicado para ${deviceId}: ${firmwareUrl}`);
-    res.send(`Firmware subido y URL enviada a ${deviceId}.`);
+    // res.send(`Firmware subido y URL enviada a ${deviceId}.`);
   });
 });
 

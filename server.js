@@ -3,6 +3,7 @@ const bodyParser = require('body-parser');
 const mqtt = require('mqtt');
 const multer = require('multer');
 const path = require('path');
+const socketIo = require('socket.io');
 
 // Importar PrismaClient
 const { PrismaClient } = require('@prisma/client');
@@ -10,6 +11,8 @@ const prisma = new PrismaClient();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const io = socketIo(server); // Inicializar Socket.IO
+
 
 // Configurar vistas EJS
 app.set('view engine', 'ejs');

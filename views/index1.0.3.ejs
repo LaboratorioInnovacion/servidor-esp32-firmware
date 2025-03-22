@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Panel de Dispositivos, Mediciones y Actualización de Firmware</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background: #f7f7f7;
+    }
+    h1, h2 {
+      color: #333;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 40px;
+      background: #fff;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: left;
+    }
+    th {
+      background-color: #eee;
+    }
+    .online {
+      color: green;
+      font-weight: bold;
+    }
+    .offline {
+      color: red;
+      font-weight: bold;
+    }
+    form {
+      background: #fff;
+      padding: 20px;
+      border: 1px solid #ccc;
+      max-width: 600px;
+      margin-bottom: 40px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    input, select {
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 15px;
+    }
+    button {
+      padding: 10px 15px;
+      background: #007BFF;
+      color: #fff;
+      border: none;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+  </style>
+</head>
+<body>
+  <h1>Listado de Dispositivos</h1>
+  <table>
+    <thead>
+      <tr>
+        <th>MAC</th>
+        <th>Nombre</th>
+        <th>Estado</th>
+        <th>Versión</th>
+        <th>Último Visto</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% if (dispositivos && dispositivos.length > 0) { %>
+        <% dispositivos.forEach(function(dispositivo) { %>
+          <tr>
+            <td><%= dispositivo.mac %></td>
+            <td><%= dispositivo.name %></td>
+            <td class="<%= dispositivo.status === 'online' ? 'online' : 'offline' %>">
+              <%= dispositivo.status %>
+            </td>
+            <td><%= dispositivo.version %></td>
+            <td><%= dispositivo.lastSeen %></td>
+          </tr>
+        <% }) %>
+      <% } else { %>
+        <tr>
+          <td colspan="5">No hay dispositivos registrados</td>
+        </tr>
+      <% } %>
+    </tbody>
+  </table>
+
+  <h1>Listado de Mediciones</h1>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>MAC</th>
+        <th>Tiempo</th>
+        <th>Uptime</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% if (mediciones && mediciones.length > 0) { %>
+        <% mediciones.forEach(function(medicion) { %>
+          <tr>
+            <td><%= medicion.id %></td>
+            <td><%= medicion.mac %></td>
+            <td><%= medicion.time %></td>
+            <td><%= medicion.uptime %></td>
+          </tr>
+        <% }) %>
+      <% } else { %>
+        <tr>
+          <td colspan="4">No hay mediciones registradas</td>
+        </tr>
+      <% } %>
+    </tbody>
+  </table>
+
+  <h2>Actualizar Firmware via OTA</h2>
+  <form action="/update-firmware" method="POST" enctype="multipart/form-data">
+    <label for="deviceId">Selecciona el dispositivo:</label>
+    <!-- Permite elegir un dispositivo específico o "all" para todos -->
+    <select name="deviceId" id="deviceId">
+      <option value="all">Todos</option>
+      <% dispositivos.forEach(function(dispositivo) { %>
+        <option value="<%= dispositivo.mac %>"><%= dispositivo.mac %> - <%= dispositivo.name %></option>
+      <% }); %>
+    </select>
+    
+    <label for="firmware">Selecciona el firmware (.bin):</label>
+    <input type="file" name="firmware" id="firmware" accept=".bin" required>
+    
+    <button type="submit">Actualizar Firmware</button>
+  </form>
+</body>
+</html>

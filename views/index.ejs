@@ -2,15 +2,21 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Panel de Estado de ESP32</title>
+  <title>Panel de Estado y Actualización de Firmware</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
-    table, th, td { border: 1px solid #ccc; }
-    th, td { padding: 8px; text-align: left; }
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f7f7f7; }
+    h1, h2 { color: #333; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; background: #fff; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background-color: #eee; }
     .online { color: green; font-weight: bold; }
     .offline { color: red; font-weight: bold; }
-    #logs { border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: scroll; background: #f0f0f0; }
+    #logs { border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: scroll; background: #eaeaea; }
+    form { background: #fff; padding: 20px; border: 1px solid #ccc; margin-bottom: 20px; }
+    label { display: block; margin-bottom: 5px; font-weight: bold; }
+    input, select { width: 100%; padding: 8px; margin-bottom: 15px; }
+    button { padding: 10px 15px; background: #007BFF; color: #fff; border: none; cursor: pointer; }
+    button:hover { background: #0056b3; }
   </style>
 </head>
 <body>
@@ -31,7 +37,9 @@
         <tr id="device-<%= mac %>">
           <td><%= mac %></td>
           <td><%= devices[mac].name %></td>
-          <td class="<%= devices[mac].status === 'online' ? 'online' : 'offline' %>"><%= devices[mac].status %></td>
+          <td class="<%= devices[mac].status === 'online' ? 'online' : 'offline' %>">
+            <%= devices[mac].status %>
+          </td>
           <td><%= devices[mac].version %></td>
           <td>
             <% if (devices[mac].lastSeen) { %>
@@ -44,6 +52,22 @@
     </tbody>
   </table>
 
+  <h2>Actualizar Firmware vía OTA</h2>
+  <form action="/update-firmware" method="POST" enctype="multipart/form-data">
+    <label for="deviceId">Selecciona el dispositivo:</label>
+    <select name="deviceId" id="deviceId">
+      <option value="all">Todos</option>
+      <% Object.keys(devices).forEach(function(mac) { %>
+        <option value="<%= mac %>"><%= mac %> - <%= devices[mac].name %></option>
+      <% }); %>
+    </select>
+    
+    <label for="firmware">Selecciona el firmware (.bin):</label>
+    <input type="file" name="firmware" id="firmware" accept=".bin" required>
+    
+    <button type="submit">Actualizar Firmware</button>
+  </form>
+
   <h2>Logs de Depuración</h2>
   <div id="logs">
     <% logs.forEach(function(log) { %>
@@ -51,14 +75,13 @@
     <% }) %>
   </div>
 
-  <!-- Incluir Socket.IO -->
+  <!-- Socket.IO -->
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
     const devicesTable = document.getElementById('devicesTable');
     const logsDiv = document.getElementById('logs');
 
-    // Actualizar la tabla de dispositivos al recibir nuevos datos
     socket.on('devices', function(devices) {
       devicesTable.innerHTML = "";
       for (let mac in devices) {
@@ -77,7 +100,6 @@
       }
     });
 
-    // Agregar nuevos logs conforme se reciben
     socket.on('log', function(message) {
       const p = document.createElement('p');
       p.textContent = message;
@@ -85,7 +107,6 @@
       logsDiv.scrollTop = logsDiv.scrollHeight;
     });
 
-    // Al conectar, enviar los logs actuales
     socket.on('logs', function(logs) {
       logsDiv.innerHTML = "";
       logs.forEach(function(log) {

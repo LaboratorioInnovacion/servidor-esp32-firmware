@@ -3,6 +3,7 @@ const http = require('http');
 const socketIo = require('socket.io');
 const mqtt = require('mqtt');
 const bodyParser = require('body-parser');
+const multer = require('multer');
 const path = require('path');
 
 // Crear la aplicación Express y el servidor HTTP
@@ -15,14 +16,13 @@ const PORT = process.env.PORT || 3000;
 
 // Variables en memoria para dispositivos y logs
 let devicesData = {}; // Objeto: clave = MAC, valor = { mac, name, status, version, lastSeen, health, measurements }
-let debugLogs = [];   // Array de cadenas de log
+let debugLogs = [];   // Array de logs
 
 // Función para agregar logs y emitirlos vía WebSocket
 function addLog(message) {
   const timestamp = new Date().toLocaleTimeString('es-AR');
   const logMessage = `[${timestamp}] ${message}`;
   debugLogs.push(logMessage);
-  // Limitar el tamaño del array (opcional)
   if (debugLogs.length > 1000) debugLogs.shift();
   io.emit('log', logMessage);
 }
@@ -32,12 +32,11 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
-
-// Servir archivos estáticos (por ejemplo, para Socket.IO y otros assets)
+// Servir archivos estáticos (incluyendo Socket.IO client)
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------------------------
-// Configuración MQTT
+// CONFIGURACIÓN MQTT
 // ---------------------------
 const MQTT_OPTIONS = {
   host: "ad11f935a9c74146a4d2e647921bf024.s1.eu.hivemq.cloud",
@@ -73,7 +72,6 @@ mqttClient.on('message', (topic, message) => {
     let now = new Date();
 
     if (topic === "esp32/status") {
-      // Actualiza o inserta el dispositivo
       if (!devicesData[mac]) {
         devicesData[mac] = { mac, measurements: [] };
       }
@@ -90,7 +88,6 @@ mqttClient.on('message', (topic, message) => {
       devicesData[mac].name = payload.name || devicesData[mac].name || "";
       devicesData[mac].status = "online";
       devicesData[mac].lastSeen = now;
-      // Registrar medición si existe uptime
       if (payload.uptime) {
         devicesData[mac].measurements.push({ time: now, uptime: payload.uptime });
       }
@@ -112,30 +109,60 @@ setInterval(() => {
       devicesData[mac].health = "NO RESPONDE";
     }
   }
-  // Emitir actualización a clientes conectados
   io.emit('devices', devicesData);
 }, 30000);
 
 // ---------------------------
-// Rutas Express
+// CONFIGURACIÓN OTA – SUBIR FIRMWARE
+// ---------------------------
+// Usaremos multer para subir el archivo y guardarlo en la carpeta 'uploads'
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, 'uploads/'),
+  filename: (req, file, cb) => cb(null, 'firmware.bin')
+});
+const upload = multer({ storage });
+
+// Ruta para servir archivos estáticos de firmware
+app.use('/firmware', express.static(path.join(__dirname, 'uploads')));
+
+// Ruta POST para actualizar firmware vía OTA
+app.post('/update-firmware', upload.single('firmware'), (req, res) => {
+  const deviceId = req.body.deviceId || 'all';
+  // Aquí debes definir el baseUrl de tu servidor accesible públicamente
+  const baseUrl = process.env.BASE_URL || "https://tudominio.com";
+  const firmwareUrl = `${baseUrl}/firmware/firmware.bin`;
+  const payload = `${deviceId}|${firmwareUrl}`;
+  
+  // Publicar el mensaje en el tópico "esp32/update" para que el ESP32 realice OTA
+  mqttClient.publish("esp32/update", payload, (err) => {
+    if (err) {
+      addLog(`Error publicando firmware: ${err}`);
+      return res.status(500).send("Error enviando firmware al ESP32.");
+    }
+    addLog(`Firmware publicado para ${deviceId}: ${firmwareUrl}`);
+    res.send(`Firmware subido y orden enviada a ${deviceId}.`);
+  });
+});
+
+// ---------------------------
+// RUTAS EXPRESS
 // ---------------------------
 
-// Vista principal: muestra dispositivos y logs
+// Vista principal: muestra dispositivos, logs y el formulario para actualizar firmware
 app.get('/', (req, res) => {
   res.render('index', { devices: devicesData, logs: debugLogs });
 });
 
-// Ruta para obtener datos de dispositivos en JSON (opcional)
+// Ruta opcional para obtener dispositivos en JSON
 app.get('/devices', (req, res) => {
   res.json(devicesData);
 });
 
 // ---------------------------
-// Socket.IO: Enviar dispositivos y logs al conectarse
+// Socket.IO: Enviar dispositivos y logs a los clientes
 // ---------------------------
 io.on('connection', (socket) => {
   addLog("Cliente conectado a WebSocket.");
-  // Enviar la información actual al cliente conectado
   socket.emit('devices', devicesData);
   socket.emit('logs', debugLogs);
 });

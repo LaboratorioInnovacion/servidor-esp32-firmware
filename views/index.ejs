@@ -3,226 +3,77 @@
 <head>
   <meta charset="UTF-8">
   <title>Panel de Estado y Actualización de Firmware</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <!-- Uso de la fuente Roboto -->
-  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-  <style>
-    * {
-      box-sizing: border-box;
-    }
-    body {
-      font-family: 'Roboto', sans-serif;
-      margin: 0;
-      padding: 20px;
-      background: #f0f2f5;
-      color: #333;
-    }
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-    }
-    h1, h2 {
-      text-align: center;
-      margin-bottom: 20px;
-      color: #444;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      background: #fff;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-      margin-bottom: 30px;
-    }
-    th, td {
-      padding: 12px 15px;
-      border: 1px solid #e0e0e0;
-      text-align: left;
-    }
-    th {
-      background-color: #fafafa;
-      font-weight: 500;
-    }
-    tr:nth-child(even) {
-      background-color: #f9f9f9;
-    }
-    .online {
-      color: #28a745;
-      font-weight: 700;
-    }
-    .offline {
-      color: #dc3545;
-      font-weight: 700;
-    }
-    form {
-      background: #fff;
-      padding: 20px;
-      border: 1px solid #e0e0e0;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-      margin-bottom: 30px;
-      border-radius: 5px;
-    }
-    form label {
-      display: block;
-      margin-bottom: 8px;
-      font-weight: 500;
-    }
-    form input[type="file"],
-    form select {
-      width: 100%;
-      padding: 10px;
-      margin-bottom: 20px;
-      border: 1px solid #ccc;
-      border-radius: 3px;
-    }
-    form button {
-      display: block;
-      width: 100%;
-      padding: 12px;
-      background: #007bff;
-      color: #fff;
-      border: none;
-      border-radius: 3px;
-      font-size: 16px;
-      cursor: pointer;
-      transition: background 0.3s ease;
-    }
-    form button:hover {
-      background: #0056b3;
-    }
-    #logs {
-      background: #fff;
-      border: 1px solid #e0e0e0;
-      padding: 15px;
-      height: 300px;
-      overflow-y: auto;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-      border-radius: 5px;
-    }
-    #logs p {
-      margin: 5px 0;
-      font-size: 14px;
-      line-height: 1.5;
-    }
-  </style>
+  <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body>
-  <div class="container">
-    <h1>Estado de Dispositivos ESP32</h1>
-    <table>
-      <thead>
-        <tr>
-          <th>MAC</th>
-          <th>Nombre</th>
-          <th>Estado</th>
-          <th>Versión</th>
-          <th>Último Visto</th>
-          <th>Salud</th>
-        </tr>
-      </thead>
-      <tbody id="devicesTable">
-        <% for (let mac in devices) { %>
-          <tr id="device-<%= mac %>">
-            <td><%= mac %></td>
-            <td><%= devices[mac].name %></td>
-            <td class="<%= devices[mac].status === 'online' ? 'online' : 'offline' %>">
-              <%= devices[mac].status %>
-            </td>
-            <td><%= devices[mac].version %></td>
-            <td>
-              <% if (devices[mac].lastSeen) { %>
-                <%= new Date(devices[mac].lastSeen).toLocaleString('es-AR') %>
-              <% } %>
-            </td>
-            <td><%= devices[mac].health %></td>
+<body class="bg-gray-100 p-6">
+  <div class="max-w-6xl mx-auto">
+    <div class="bg-white p-6 rounded-lg shadow mb-6">
+      <h2 class="text-xl font-semibold mb-4">Estado de Dispositivos</h2>
+      <table class="w-full border-collapse">
+        <thead>
+          <tr class="bg-gray-200 text-left">
+            <th class="p-2">MAC</th>
+            <th class="p-2">Nombre</th>
+            <th class="p-2">Estado</th>
+            <th class="p-2">Versión</th>
+            <th class="p-2">Último Visto</th>
+            <th class="p-2">Salud</th>
           </tr>
-        <% } %>
-      </tbody>
-    </table>
-
-    <h2>Actualizar Firmware vía OTA</h2>
-    <form id="firmwareForm" enctype="multipart/form-data">
-      <label for="deviceId">Selecciona el dispositivo:</label>
-      <select name="deviceId" id="deviceId">
-        <option value="all">Todos</option>
-        <% Object.keys(devices).forEach(function(mac) { %>
-          <option value="<%= mac %>"><%= mac %> - <%= devices[mac].name %></option>
-        <% }); %>
-      </select>
+        </thead>
+        <tbody>
+          <% for (let mac in devices) { %>
+            <tr class="border-b">
+              <td class="p-2"><%= mac %></td>
+              <td class="p-2"><%= devices[mac].name %></td>
+              <td class="p-2 <%= devices[mac].status === 'online' ? 'text-green-600' : 'text-red-600' %>">
+                <%= devices[mac].status %>
+              </td>
+              <td class="p-2"><%= devices[mac].version %></td>
+              <td class="p-2"><%= devices[mac].lastSeen ? new Date(devices[mac].lastSeen).toLocaleString('es-AR') : '' %></td>
+              <td class="p-2"><%= devices[mac].health %></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+    
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div class="bg-white p-6 rounded-lg shadow">
+        <h2 class="text-xl font-semibold mb-4">Actualizar Firmware</h2>
+        <form id="firmwareForm" enctype="multipart/form-data">
+          <label for="deviceId" class="block font-semibold">Selecciona el dispositivo:</label>
+          <select name="deviceId" id="deviceId" class="w-full p-2 border rounded">
+            <option value="all">Todos</option>
+            <% Object.keys(devices).forEach(function(mac) { %>
+              <option value="<%= mac %>"><%= mac %> - <%= devices[mac].name %></option>
+            <% }); %>
+          </select>
+          <label for="firmware" class="block font-semibold mt-4">Selecciona el firmware (.bin):</label>
+          <input type="file" name="firmware" id="firmware" accept=".bin" required class="w-full p-2 border rounded">
+          <button type="submit" class="mt-4 w-full p-2 bg-blue-500 text-white rounded">Actualizar Firmware</button>
+        </form>
+      </div>
       
-      <label for="firmware">Selecciona el firmware (.bin):</label>
-      <input type="file" name="firmware" id="firmware" accept=".bin" required>
-      
-      <button type="submit">Actualizar Firmware</button>
-    </form>
-
-    <h2>Logs de Depuración</h2>
-    <div id="logs">
-      <% logs.forEach(function(log) { %>
-        <p><%= log %></p>
-      <% }) %>
+      <div class="bg-white p-6 rounded-lg shadow">
+        <h2 class="text-xl font-semibold mb-4">Logs de Depuración</h2>
+        <div id="logs" class="h-40 overflow-auto bg-black text-green-400 p-2 rounded">
+          <% logs.forEach(function(log) { %>
+            <p><%= log %></p>
+          <% }) %>
+        </div>
+      </div>
     </div>
   </div>
 
-  <!-- Socket.IO -->
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    const devicesTable = document.getElementById('devicesTable');
     const logsDiv = document.getElementById('logs');
-
-    // Actualizar la tabla de dispositivos al recibir nuevos datos
-    socket.on('devices', function(devices) {
-      devicesTable.innerHTML = "";
-      for (let mac in devices) {
-        const device = devices[mac];
-        const row = document.createElement('tr');
-        row.id = 'device-' + mac;
-        row.innerHTML = `
-          <td>${mac}</td>
-          <td>${device.name || ""}</td>
-          <td class="${device.status === 'online' ? 'online' : 'offline'}">${device.status}</td>
-          <td>${device.version || ""}</td>
-          <td>${device.lastSeen ? new Date(device.lastSeen).toLocaleString('es-AR') : ""}</td>
-          <td>${device.health || ""}</td>
-        `;
-        devicesTable.appendChild(row);
-      }
-    });
-
-    // Agregar nuevos logs conforme se reciben
     socket.on('log', function(message) {
       const p = document.createElement('p');
       p.textContent = message;
       logsDiv.appendChild(p);
       logsDiv.scrollTop = logsDiv.scrollHeight;
-    });
-
-    socket.on('logs', function(logs) {
-      logsDiv.innerHTML = "";
-      logs.forEach(function(log) {
-        const p = document.createElement('p');
-        p.textContent = log;
-        logsDiv.appendChild(p);
-      });
-    });
-
-    // Manejar el submit del formulario de firmware vía AJAX
-    const firmwareForm = document.getElementById('firmwareForm');
-    firmwareForm.addEventListener('submit', function(e) {
-      e.preventDefault();
-      const formData = new FormData(firmwareForm);
-      fetch('/update-firmware', {
-        method: 'POST',
-        body: formData
-      })
-      .then(response => response.text())
-      .then(result => {
-        socket.emit('log', `Respuesta del servidor: ${result}`);
-      })
-      .catch(error => {
-        socket.emit('log', `Error al enviar firmware: ${error}`);
-      });
     });
   </script>
 </body>

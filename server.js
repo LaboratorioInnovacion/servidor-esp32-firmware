@@ -5,35 +5,71 @@ const mqtt = require('mqtt');
 const bodyParser = require('body-parser');
 const multer = require('multer');
 const path = require('path');
+const { PrismaClient } = require('@prisma/client');
 
-// Crear la aplicación Express y el servidor HTTP
+const prisma = new PrismaClient();
 const app = express();
 const server = http.createServer(app);
-// Inicializar Socket.IO sobre el servidor HTTP
 const io = socketIo(server);
 
 const PORT = process.env.PORT || 3000;
 
-// Variables en memoria para dispositivos y logs
-let devicesData = {}; // Objeto: clave = MAC, valor = { mac, name, status, version, lastSeen, health, measurements }
-let debugLogs = [];   // Array de logs
-
-// Función para agregar logs y emitirlos vía WebSocket
-function addLog(message) {
-  const timestamp = new Date().toLocaleTimeString('es-AR');
-  const logMessage = `[${timestamp}] ${message}`;
-  debugLogs.push(logMessage);
-  if (debugLogs.length > 1000) debugLogs.shift();
-  io.emit('log', logMessage);
-}
+// Configuración de multer para OTA
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, 'uploads/'),
+  filename: (req, file, cb) => cb(null, 'firmware.bin')
+});
+const upload = multer({ storage });
 
 // Configurar EJS y middleware
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
-// Servir archivos estáticos (incluyendo Socket.IO client)
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/firmware', express.static(path.join(__dirname, 'uploads')));
+
+// ---------------------------
+// Funciones para persistencia
+// ---------------------------
+
+// Agrega un log en la base de datos y lo emite vía WebSocket
+async function addLog(message) {
+  const timestamp = new Date().toLocaleTimeString('es-AR');
+  const logMessage = `[${timestamp}] ${message}`;
+  try {
+    await prisma.debugLog.create({ data: { message: logMessage } });
+    io.emit('log', logMessage);
+  } catch (error) {
+    console.error("Error guardando log:", error);
+  }
+}
+
+// Actualiza (o crea) un dispositivo en la base de datos
+async function upsertDevice(mac, data) {
+  try {
+    await prisma.device.upsert({
+      where: { mac },
+      update: { ...data },
+      create: { mac, ...data }
+    });
+  } catch (error) {
+    console.error(`Error actualizando dispositivo ${mac}:`, error);
+  }
+}
+
+// Recupera todos los dispositivos
+async function getDevices() {
+  return await prisma.device.findMany();
+}
+
+// Recupera los últimos 100 logs
+async function getLogs() {
+  return await prisma.debugLog.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: 100
+  });
+}
 
 // ---------------------------
 // CONFIGURACIÓN MQTT
@@ -50,7 +86,6 @@ const mqttClient = mqtt.connect(MQTT_OPTIONS);
 
 mqttClient.on('connect', () => {
   addLog("Conectado al broker MQTT.");
-  // Suscribirse a los tópicos de estado y heartbeat
   mqttClient.subscribe("esp32/status", (err) => {
     if (err) addLog("Error al suscribirse a esp32/status: " + err);
     else addLog("Suscrito a esp32/status");
@@ -65,33 +100,35 @@ mqttClient.on('error', (err) => {
   addLog("Error en MQTT: " + err);
 });
 
-mqttClient.on('message', (topic, message) => {
+mqttClient.on('message', async (topic, message) => {
   try {
-    let payload = JSON.parse(message.toString());
-    let mac = payload.mac || "unknown";
-    let now = new Date();
+    const payload = JSON.parse(message.toString());
+    const mac = payload.mac || "unknown";
+    const now = new Date();
+    let data = {};
 
     if (topic === "esp32/status") {
-      if (!devicesData[mac]) {
-        devicesData[mac] = { mac, measurements: [] };
-      }
-      devicesData[mac].name = payload.name || devicesData[mac].name || "";
-      devicesData[mac].status = payload.status || "desconocido";
-      devicesData[mac].version = payload.version || "";
-      devicesData[mac].lastSeen = now;
-      devicesData[mac].health = "OK"; // Inicialmente OK (puedes agregar lógica adicional)
-      addLog(`Dispositivo ${mac} actualizado a estado ${devicesData[mac].status}.`);
+      data = {
+        name: payload.name || "",
+        status: payload.status || "desconocido",
+        version: payload.version || "",
+        lastSeen: now,
+        health: "OK"
+      };
+      await upsertDevice(mac, data);
+      addLog(`Dispositivo ${mac} actualizado a estado ${data.status}.`);
     } else if (topic === "esp32/heartbeat") {
-      if (!devicesData[mac]) {
-        devicesData[mac] = { mac, measurements: [] };
-      }
-      devicesData[mac].name = payload.name || devicesData[mac].name || "";
-      devicesData[mac].status = "online";
-      devicesData[mac].lastSeen = now;
+      data = {
+        name: payload.name || "",
+        status: "online",
+        lastSeen: now,
+        health: "OK"
+      };
+      // Para las mediciones, puedes almacenar un arreglo o datos JSON
       if (payload.uptime) {
-        devicesData[mac].measurements.push({ time: now, uptime: payload.uptime });
+        data.measurements = JSON.stringify({ time: now, uptime: payload.uptime });
       }
-      devicesData[mac].health = "OK";
+      await upsertDevice(mac, data);
       addLog(`Heartbeat recibido de ${mac} (uptime: ${payload.uptime || 'N/A'}).`);
     }
   } catch (err) {
@@ -100,40 +137,35 @@ mqttClient.on('message', (topic, message) => {
 });
 
 // Revisión periódica para marcar dispositivos como offline si no se han visto en 60 segundos
-setInterval(() => {
-  let now = new Date();
-  for (let mac in devicesData) {
-    let lastSeen = devicesData[mac].lastSeen;
-    if (lastSeen && ((now - lastSeen) / 1000) > 60) {
-      devicesData[mac].status = "offline";
-      devicesData[mac].health = "NO RESPONDE";
+setInterval(async () => {
+  const now = new Date();
+  const devices = await getDevices();
+  for (const device of devices) {
+    if (device.lastSeen && ((now - device.lastSeen) / 1000) > 60) {
+      try {
+        await prisma.device.update({
+          where: { mac: device.mac },
+          data: { status: "offline", health: "NO RESPONDE" }
+        });
+      } catch (error) {
+        console.error(`Error marcando ${device.mac} como offline:`, error);
+      }
     }
   }
-  io.emit('devices', devicesData);
+  // Emitir los dispositivos actualizados a través de Socket.IO
+  const updatedDevices = await getDevices();
+  io.emit('devices', updatedDevices);
 }, 30000);
 
 // ---------------------------
 // CONFIGURACIÓN OTA – SUBIR FIRMWARE
 // ---------------------------
-// Usaremos multer para subir el archivo y guardarlo en la carpeta 'uploads'
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, 'uploads/'),
-  filename: (req, file, cb) => cb(null, 'firmware.bin')
-});
-const upload = multer({ storage });
-
-// Ruta para servir archivos estáticos de firmware
-app.use('/firmware', express.static(path.join(__dirname, 'uploads')));
-
-// Ruta POST para actualizar firmware vía OTA
 app.post('/update-firmware', upload.single('firmware'), (req, res) => {
   const deviceId = req.body.deviceId || 'all';
-  // Aquí debes definir el baseUrl de tu servidor accesible públicamente
   const baseUrl = process.env.BASE_URL || "https://servidor-esp32.onrender.com";
   const firmwareUrl = `${baseUrl}/firmware/firmware.bin`;
   const payload = `${deviceId}|${firmwareUrl}`;
-  
-  // Publicar el mensaje en el tópico "esp32/update" para que el ESP32 realice OTA
+
   mqttClient.publish("esp32/update", payload, (err) => {
     if (err) {
       addLog(`Error publicando firmware: ${err}`);
@@ -147,32 +179,212 @@ app.post('/update-firmware', upload.single('firmware'), (req, res) => {
 // ---------------------------
 // RUTAS EXPRESS
 // ---------------------------
-
-// Vista principal: muestra dispositivos, logs y el formulario para actualizar firmware
-app.get('/', (req, res) => {
-  res.render('index', { devices: devicesData, logs: debugLogs });
+app.get('/', async (req, res) => {
+  const devices = await getDevices();
+  const logsRaw = await getLogs();
+  // Invertir el orden para que los logs más antiguos aparezcan primero
+  const logs = logsRaw.reverse().map(log => log.message);
+  res.render('index', { devices, logs });
 });
 
-// Ruta opcional para obtener dispositivos en JSON
-app.get('/devices', (req, res) => {
-  res.json(devicesData);
-});
-
-// ---------------------------
-// Socket.IO: Enviar dispositivos y logs a los clientes
-// ---------------------------
-io.on('connection', (socket) => {
-  addLog("Cliente conectado a WebSocket.");
-  socket.emit('devices', devicesData);
-  socket.emit('logs', debugLogs);
+app.get('/devices', async (req, res) => {
+  const devices = await getDevices();
+  res.json(devices);
 });
 
 // ---------------------------
-// Iniciar el Servidor
+// Socket.IO
 // ---------------------------
+io.on('connection', async (socket) => {
+  addLog("Cliente conectado a WebSocket.").catch(console.error);
+  const devices = await getDevices();
+  const logsRaw = await getLogs();
+  const logs = logsRaw.reverse().map(log => log.message);
+  socket.emit('devices', devices);
+  socket.emit('logs', logs);
+});
+
+// Iniciar el servidor
 server.listen(PORT, () => {
   console.log(`Servidor corriendo en http://localhost:${PORT}`);
 });
+
+//codigo funcional sin base de datos
+// const express = require('express');
+// const http = require('http');
+// const socketIo = require('socket.io');
+// const mqtt = require('mqtt');
+// const bodyParser = require('body-parser');
+// const multer = require('multer');
+// const path = require('path');
+
+// // Crear la aplicación Express y el servidor HTTP
+// const app = express();
+// const server = http.createServer(app);
+// // Inicializar Socket.IO sobre el servidor HTTP
+// const io = socketIo(server);
+
+// const PORT = process.env.PORT || 3000;
+
+// // Variables en memoria para dispositivos y logs
+// let devicesData = {}; // Objeto: clave = MAC, valor = { mac, name, status, version, lastSeen, health, measurements }
+// let debugLogs = [];   // Array de logs
+
+// // Función para agregar logs y emitirlos vía WebSocket
+// function addLog(message) {
+//   const timestamp = new Date().toLocaleTimeString('es-AR');
+//   const logMessage = `[${timestamp}] ${message}`;
+//   debugLogs.push(logMessage);
+//   if (debugLogs.length > 1000) debugLogs.shift();
+//   io.emit('log', logMessage);
+// }
+
+// // Configurar EJS y middleware
+// app.set('view engine', 'ejs');
+// app.set('views', path.join(__dirname, 'views'));
+// app.use(bodyParser.urlencoded({ extended: false }));
+// app.use(bodyParser.json());
+// // Servir archivos estáticos (incluyendo Socket.IO client)
+// app.use(express.static(path.join(__dirname, 'public')));
+
+// // ---------------------------
+// // CONFIGURACIÓN MQTT
+// // ---------------------------
+// const MQTT_OPTIONS = {
+//   host: "ad11f935a9c74146a4d2e647921bf024.s1.eu.hivemq.cloud",
+//   port: 8883,
+//   protocol: 'mqtts',
+//   username: "Augustodelcampo97",
+//   password: "Augustodelcampo97"
+// };
+
+// const mqttClient = mqtt.connect(MQTT_OPTIONS);
+
+// mqttClient.on('connect', () => {
+//   addLog("Conectado al broker MQTT.");
+//   // Suscribirse a los tópicos de estado y heartbeat
+//   mqttClient.subscribe("esp32/status", (err) => {
+//     if (err) addLog("Error al suscribirse a esp32/status: " + err);
+//     else addLog("Suscrito a esp32/status");
+//   });
+//   mqttClient.subscribe("esp32/heartbeat", (err) => {
+//     if (err) addLog("Error al suscribirse a esp32/heartbeat: " + err);
+//     else addLog("Suscrito a esp32/heartbeat");
+//   });
+// });
+
+// mqttClient.on('error', (err) => {
+//   addLog("Error en MQTT: " + err);
+// });
+
+// mqttClient.on('message', (topic, message) => {
+//   try {
+//     let payload = JSON.parse(message.toString());
+//     let mac = payload.mac || "unknown";
+//     let now = new Date();
+
+//     if (topic === "esp32/status") {
+//       if (!devicesData[mac]) {
+//         devicesData[mac] = { mac, measurements: [] };
+//       }
+//       devicesData[mac].name = payload.name || devicesData[mac].name || "";
+//       devicesData[mac].status = payload.status || "desconocido";
+//       devicesData[mac].version = payload.version || "";
+//       devicesData[mac].lastSeen = now;
+//       devicesData[mac].health = "OK"; // Inicialmente OK (puedes agregar lógica adicional)
+//       addLog(`Dispositivo ${mac} actualizado a estado ${devicesData[mac].status}.`);
+//     } else if (topic === "esp32/heartbeat") {
+//       if (!devicesData[mac]) {
+//         devicesData[mac] = { mac, measurements: [] };
+//       }
+//       devicesData[mac].name = payload.name || devicesData[mac].name || "";
+//       devicesData[mac].status = "online";
+//       devicesData[mac].lastSeen = now;
+//       if (payload.uptime) {
+//         devicesData[mac].measurements.push({ time: now, uptime: payload.uptime });
+//       }
+//       devicesData[mac].health = "OK";
+//       addLog(`Heartbeat recibido de ${mac} (uptime: ${payload.uptime || 'N/A'}).`);
+//     }
+//   } catch (err) {
+//     addLog("Error parseando mensaje MQTT: " + err);
+//   }
+// });
+
+// // Revisión periódica para marcar dispositivos como offline si no se han visto en 60 segundos
+// setInterval(() => {
+//   let now = new Date();
+//   for (let mac in devicesData) {
+//     let lastSeen = devicesData[mac].lastSeen;
+//     if (lastSeen && ((now - lastSeen) / 1000) > 60) {
+//       devicesData[mac].status = "offline";
+//       devicesData[mac].health = "NO RESPONDE";
+//     }
+//   }
+//   io.emit('devices', devicesData);
+// }, 30000);
+
+// // ---------------------------
+// // CONFIGURACIÓN OTA – SUBIR FIRMWARE
+// // ---------------------------
+// // Usaremos multer para subir el archivo y guardarlo en la carpeta 'uploads'
+// const storage = multer.diskStorage({
+//   destination: (req, file, cb) => cb(null, 'uploads/'),
+//   filename: (req, file, cb) => cb(null, 'firmware.bin')
+// });
+// const upload = multer({ storage });
+
+// // Ruta para servir archivos estáticos de firmware
+// app.use('/firmware', express.static(path.join(__dirname, 'uploads')));
+
+// // Ruta POST para actualizar firmware vía OTA
+// app.post('/update-firmware', upload.single('firmware'), (req, res) => {
+//   const deviceId = req.body.deviceId || 'all';
+//   // Aquí debes definir el baseUrl de tu servidor accesible públicamente
+//   const baseUrl = process.env.BASE_URL || "https://servidor-esp32.onrender.com";
+//   const firmwareUrl = `${baseUrl}/firmware/firmware.bin`;
+//   const payload = `${deviceId}|${firmwareUrl}`;
+  
+//   // Publicar el mensaje en el tópico "esp32/update" para que el ESP32 realice OTA
+//   mqttClient.publish("esp32/update", payload, (err) => {
+//     if (err) {
+//       addLog(`Error publicando firmware: ${err}`);
+//       return res.status(500).send("Error enviando firmware al ESP32.");
+//     }
+//     addLog(`Firmware publicado para ${deviceId}: ${firmwareUrl}`);
+//     res.send(`Firmware subido y orden enviada a ${deviceId}.`);
+//   });
+// });
+
+// // ---------------------------
+// // RUTAS EXPRESS
+// // ---------------------------
+
+// // Vista principal: muestra dispositivos, logs y el formulario para actualizar firmware
+// app.get('/', (req, res) => {
+//   res.render('index', { devices: devicesData, logs: debugLogs });
+// });
+
+// // Ruta opcional para obtener dispositivos en JSON
+// app.get('/devices', (req, res) => {
+//   res.json(devicesData);
+// });
+
+// // ---------------------------
+// // Socket.IO: Enviar dispositivos y logs a los clientes
+// // ---------------------------
+// io.on('connection', (socket) => {
+//   addLog("Cliente conectado a WebSocket.");
+//   socket.emit('devices', devicesData);
+//   socket.emit('logs', debugLogs);
+// });
+
+// // ---------------------------
+// // Iniciar el Servidor
+// // ---------------------------
+// server.listen(PORT, () => {
+//   console.log(`Servidor corriendo en http://localhost:${PORT}`);
+// });
 
 // const express = require('express');
 // const bodyParser = require('body-parser');

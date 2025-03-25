@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Actualización de Firmware y Depuración</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    #logs {
+      border: 1px solid #ccc;
+      padding: 10px;
+      height: 300px;
+      overflow-y: scroll;
+      background: #f0f0f0;
+    }
+    form {
+      margin-bottom: 20px;
+      border: 1px solid #ccc;
+      padding: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Actualizar Firmware vía OTA</h1>
+  <form action="/update-firmware" method="POST" enctype="multipart/form-data">
+    <label for="deviceId">Selecciona el dispositivo:</label>
+    <select name="deviceId" id="deviceId">
+      <option value="all">Todos</option>
+      <!-- Aquí podrías generar opciones dinámicamente -->
+    </select>
+    <br>
+    <label for="firmware">Selecciona el firmware (.bin):</label>
+    <input type="file" name="firmware" id="firmware" accept=".bin" required>
+    <br>
+    <button type="submit">Actualizar Firmware</button>
+  </form>
+
+  <h2>Logs de Depuración</h2>
+  <div id="logs"></div>
+
+  <!-- Socket.IO -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    const logsDiv = document.getElementById('logs');
+
+    socket.on('log', function(message) {
+      const p = document.createElement('p');
+      p.textContent = message;
+      logsDiv.appendChild(p);
+      logsDiv.scrollTop = logsDiv.scrollHeight; // Auto-scroll
+    });
+  </script>
+</body>
+</html>

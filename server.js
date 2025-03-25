@@ -129,7 +129,7 @@ app.use('/firmware', express.static(path.join(__dirname, 'uploads')));
 app.post('/update-firmware', upload.single('firmware'), (req, res) => {
   const deviceId = req.body.deviceId || 'all';
   // Aquí debes definir el baseUrl de tu servidor accesible públicamente
-  const baseUrl = process.env.BASE_URL || "https://tudominio.com";
+  const baseUrl = process.env.BASE_URL || "https://servidor-esp32.onrender.com/.com";
   const firmwareUrl = `${baseUrl}/firmware/firmware.bin`;
   const payload = `${deviceId}|${firmwareUrl}`;
   

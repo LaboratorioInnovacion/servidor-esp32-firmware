@@ -180,7 +180,14 @@ app.post('/update-firmware', upload.single('firmware'), (req, res) => {
 // RUTAS EXPRESS
 // ---------------------------
 app.get('/', async (req, res) => {
-  const devices = await getDevices();
+  // const devices = await getDevices();
+  const devicesArray  = await getDevices();
+    // Transforma el arreglo en un objeto indexado por la propiedad 'mac'
+    const devices = devicesArray.reduce((acc, device) => {
+      acc[device.mac] = device;
+      return acc;
+    }, {});
+    //hasta aqui, id es el mac
   const logsRaw = await getLogs();
   // Invertir el orden para que los logs más antiguos aparezcan primero
   const logs = logsRaw.reverse().map(log => log.message);

@@ -507,7 +507,8 @@
         }
 
         // Actualizar el selector de dispositivos también
-        deviceSelect.innerHTML = '<option value="all">Todos los Dispositivos</option>';
+    //    deviceSelect.innerHTML = '<option value="all">Todos los Dispositivos</option>';
+        deviceSelect.innerHTML = '<option>Selecciona un dispositivo</option>';
         for (let mac in devices) {
           const device = devices[mac];
           const option = document.createElement('option');

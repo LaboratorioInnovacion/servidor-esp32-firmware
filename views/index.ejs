@@ -159,13 +159,24 @@
                 </td>
               </tr>
               <% } else { %>
-                <% devices.forEach(function(device) { %>
+                <% Object.entries(devices).forEach(function([mac, device]) { %>
                   <tr class="border-b border-gray-200 hover:bg-gray-50">
                     <td class="px-6 py-4 font-mono text-xs">
-                      <%= device.mac %>
+                      <%= mac %>
                     </td>
                     <td class="px-6 py-4 font-medium">
-                      <%= device.name || "Dispositivo Sin Nombre" %>
+                      <div class="flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg"
+                          class="<%= device.status === 'online' ? 'text-green-500' : 'text-red-500 opacity-50' %> h-4 w-4"
+                          width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                          stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M5 12.55a11 11 0 0 1 14.08 0"></path>
+                          <path d="M1.42 9a16 16 0 0 1 21.16 0"></path>
+                          <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+                          <line x1="12" y1="20" x2="12.01" y2="20"></line>
+                        </svg>
+                        <%= device.name || "Dispositivo Sin Nombre" %>
+                      </div>
                     </td>
                     <td class="px-6 py-4">
                       <span
@@ -180,6 +191,14 @@
                           stroke-linejoin="round">
                           <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
                           <rect x="9" y="9" width="6" height="6"></rect>
+                          <line x1="9" y1="1" x2="9" y2="4"></line>
+                          <line x1="15" y1="1" x2="15" y2="4"></line>
+                          <line x1="9" y1="20" x2="9" y2="23"></line>
+                          <line x1="15" y1="20" x2="15" y2="23"></line>
+                          <line x1="20" y1="9" x2="23" y2="9"></line>
+                          <line x1="20" y1="14" x2="23" y2="14"></line>
+                          <line x1="1" y1="9" x2="4" y2="9"></line>
+                          <line x1="1" y1="14" x2="4" y2="14"></line>
                         </svg>
                         <span class="text-sm">
                           <%= device.version || "Desconocida" %>
@@ -192,6 +211,9 @@
                           viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                           stroke-linejoin="round">
                           <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                          <line x1="16" y1="2" x2="16" y2="6"></line>
+                          <line x1="8" y1="2" x2="8" y2="6"></line>
+                          <line x1="3" y1="10" x2="21" y2="10"></line>
                         </svg>
                         <span class="text-sm">
                           <%= device.lastSeen ? new Date(device.lastSeen).toLocaleString('es') : "Nunca" %>
@@ -201,10 +223,10 @@
                     <td class="px-6 py-4">
                       <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg" class="<%= 
-                            device.health === 'OK' ? 'text-green-500' : 
-                            device.health === 'NO RESPONDE' ? 'text-red-500' : 
-                            'text-gray-500'
-                          %> h-4 w-4" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                          device.health === 'Good' ? 'text-green-500' : 
+                          device.health === 'Fair' ? 'text-yellow-500' : 
+                          'text-red-500' 
+                        %> h-4 w-4" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                           <path
                             d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z">
@@ -217,7 +239,6 @@
                     </td>
                   </tr>
                   <% }); %>
-
                     <% } %>
           </tbody>
         </table>

@@ -443,14 +443,38 @@ app.get('/devices', async (req, res) => {
 // ---------------------------
 // Socket.IO
 // ---------------------------
+// En el evento 'connection'
 io.on('connection', async (socket) => {
   addLog("Cliente conectado a WebSocket.").catch(console.error);
-  const devices = await getDevices();
+  const devicesArray = await getDevices();
+  const devices = devicesArray.reduce((acc, device) => {
+    acc[device.mac] = device;
+    return acc;
+  }, {});
   const logsRaw = await getLogs();
   const logs = logsRaw.reverse().map(log => log.message);
   socket.emit('devices', devices);
   socket.emit('logs', logs);
 });
+
+// En el setInterval, para emitir los dispositivos actualizados:
+setInterval(async () => {
+  const devicesArray = await getDevices();
+  const devices = devicesArray.reduce((acc, device) => {
+    acc[device.mac] = device;
+    return acc;
+  }, {});
+  io.emit('devices', devices);
+}, 30000);
+//codigo original 
+// io.on('connection', async (socket) => {
+//   addLog("Cliente conectado a WebSocket.").catch(console.error);
+//   const devices = await getDevices();
+//   const logsRaw = await getLogs();
+//   const logs = logsRaw.reverse().map(log => log.message);
+//   socket.emit('devices', devices);
+//   socket.emit('logs', logs);
+// });
 
 // Iniciar el servidor
 server.listen(PORT, () => {

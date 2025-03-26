@@ -418,108 +418,111 @@
       const copyLogsBtn = document.getElementById('copyLogsBtn');
       const clearLogsBtn = document.getElementById('clearLogsBtn');
 
+      //codigo funcional
       // Actualizar la tabla de dispositivos al recibir nuevos datos
-      // socket.on('devices', function (devices) {
-      //   const tbody = document.createElement('tbody');
-      //   tbody.id = 'devicesTable';
-
-      //   if (Object.keys(devices).length === 0) {
-      //     const row = document.createElement('tr');
-      //     row.innerHTML = `
-      //       <td colspan="6" class="px-6 py-12 text-center">
-      //         <div class="flex flex-col items-center justify-center text-gray-500">
-      //           <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mb-2 opacity-20" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      //             <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
-      //           </svg>
-      //           <p>No hay dispositivos conectados</p>
-      //           <p class="text-sm">Esperando a que los dispositivos ESP32 se conecten...</p>
-      //         </div>
-      //       </td>
-      //     `;
-      //     tbody.appendChild(row);
-      //   } else {
-      //     for (let mac in devices) {
-      //       const device = devices[mac];
-      //       const row = document.createElement('tr');
-      //       row.className = 'border-b border-gray-200 hover:bg-gray-50';
-      //       row.innerHTML = `
-      //         <td class="px-6 py-4 font-mono text-xs">${mac}</td>
-      //         <td class="px-6 py-4 font-medium">
-      //           <div class="flex items-center gap-2">
-      //             <svg xmlns="http://www.w3.org/2000/svg" class="${device.status === 'online' ? 'text-green-500' : 'text-red-500 opacity-50'} h-4 w-4" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      //               <path d="M5 12.55a11 11 0 0 1 14.08 0"></path>
-      //               <path d="M1.42 9a16 16 0 0 1 21.16 0"></path>
-      //               <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
-      //               <line x1="12" y1="20" x2="12.01" y2="20"></line>
-      //             </svg>
-      //             ${device.name || "Dispositivo Sin Nombre"}
-      //           </div>
-      //         </td>
-      //         <td class="px-6 py-4">
-      //           <span class="${device.status === 'online' ? 'device-status-online' : 'device-status-offline'}">
-      //             ${device.status}
-      //           </span>
-      //         </td>
-      //         <td class="px-6 py-4">
-      //           <div class="flex items-center gap-2">
-      //             <svg xmlns="http://www.w3.org/2000/svg" class="text-gray-500 h-4 w-4" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      //               <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
-      //               <rect x="9" y="9" width="6" height="6"></rect>
-      //               <line x1="9" y1="1" x2="9" y2="4"></line>
-      //               <line x1="15" y1="1" x2="15" y2="4"></line>
-      //               <line x1="9" y1="20" x2="9" y2="23"></line>
-      //               <line x1="15" y1="20" x2="15" y2="23"></line>
-      //               <line x1="20" y1="9" x2="23" y2="9"></line>
-      //               <line x1="20" y1="14" x2="23" y2="14"></line>
-      //               <line x1="1" y1="9" x2="4" y2="9"></line>
-      //               <line x1="1" y1="14" x2="4" y2="14"></line>
-      //             </svg>
-      //             <span class="text-sm">${device.version || "Desconocida"}</span>
-      //           </div>
-      //         </td>
-      //         <td class="px-6 py-4">
-      //           <div class="flex items-center gap-2">
-      //             <svg xmlns="http://www.w3.org/2000/svg" class="text-gray-500 h-4 w-4" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      //               <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-      //               <line x1="16" y1="2" x2="16" y2="6"></line>
-      //               <line x1="8" y1="2" x2="8" y2="6"></line>
-      //               <line x1="3" y1="10" x2="21" y2="10"></line>
-      //             </svg>
-      //             <span class="text-sm">${device.lastSeen ? new Date(device.lastSeen).toLocaleString('es') : "Nunca"}</span>
-      //           </div>
-      //         </td>
-      //         <td class="px-6 py-4">
-      //           <div class="flex items-center gap-2">
-      //             <svg xmlns="http://www.w3.org/2000/svg" 
-      //               class="${device.health === 'Good' ? 'text-green-500' :
-      //           device.health === 'Fair' ? 'text-yellow-500' :
-      //             'text-red-500'
-      //         } h-4 w-4" 
-      //               width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      //               <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
-      //             </svg>
-      //             <span class="text-sm">${device.health || "Desconocida"}</span>
-      //           </div>
-      //         </td>
-      //       `;
-      //       tbody.appendChild(row);
-      //     }
-      //   }
-
-      //   // Actualizar el selector de dispositivos también
-      //   deviceSelect.innerHTML = '<option value="all">Todos los Dispositivos</option>';
-      //   for (let mac in devices) {
-      //     const device = devices[mac];
-      //     const option = document.createElement('option');
-      //     option.value = mac;
-      //     option.textContent = `${mac} - ${device.name || "Dispositivo Sin Nombre"}`;
-      //     deviceSelect.appendChild(option);
-      //   }
-
-      //   // Reemplazar la tabla existente con la nueva
-      //   devicesTable.parentNode.replaceChild(tbody, devicesTable);
-      // });
       socket.on('devices', function (devices) {
+        const tbody = document.createElement('tbody');
+        tbody.id = 'devicesTable';
+
+        if (Object.keys(devices).length === 0) {
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td colspan="6" class="px-6 py-12 text-center">
+              <div class="flex flex-col items-center justify-center text-gray-500">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mb-2 opacity-20" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                </svg>
+                <p>No hay dispositivos conectados</p>
+                <p class="text-sm">Esperando a que los dispositivos ESP32 se conecten...</p>
+              </div>
+            </td>
+          `;
+          tbody.appendChild(row);
+        } else {
+          for (let mac in devices) {
+            const device = devices[mac];
+            const row = document.createElement('tr');
+            row.className = 'border-b border-gray-200 hover:bg-gray-50';
+            row.innerHTML = `
+              <td class="px-6 py-4 font-mono text-xs">${mac}</td>
+              <td class="px-6 py-4 font-medium">
+                <div class="flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="${device.status === 'online' ? 'text-green-500' : 'text-red-500 opacity-50'} h-4 w-4" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 12.55a11 11 0 0 1 14.08 0"></path>
+                    <path d="M1.42 9a16 16 0 0 1 21.16 0"></path>
+                    <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+                    <line x1="12" y1="20" x2="12.01" y2="20"></line>
+                  </svg>
+                  ${device.name || "Dispositivo Sin Nombre"}
+                </div>
+              </td>
+              <td class="px-6 py-4">
+                <span class="${device.status === 'online' ? 'device-status-online' : 'device-status-offline'}">
+                  ${device.status}
+                </span>
+              </td>
+              <td class="px-6 py-4">
+                <div class="flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="text-gray-500 h-4 w-4" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
+                    <rect x="9" y="9" width="6" height="6"></rect>
+                    <line x1="9" y1="1" x2="9" y2="4"></line>
+                    <line x1="15" y1="1" x2="15" y2="4"></line>
+                    <line x1="9" y1="20" x2="9" y2="23"></line>
+                    <line x1="15" y1="20" x2="15" y2="23"></line>
+                    <line x1="20" y1="9" x2="23" y2="9"></line>
+                    <line x1="20" y1="14" x2="23" y2="14"></line>
+                    <line x1="1" y1="9" x2="4" y2="9"></line>
+                    <line x1="1" y1="14" x2="4" y2="14"></line>
+                  </svg>
+                  <span class="text-sm">${device.version || "Desconocida"}</span>
+                </div>
+              </td>
+              <td class="px-6 py-4">
+                <div class="flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="text-gray-500 h-4 w-4" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                    <line x1="16" y1="2" x2="16" y2="6"></line>
+                    <line x1="8" y1="2" x2="8" y2="6"></line>
+                    <line x1="3" y1="10" x2="21" y2="10"></line>
+                  </svg>
+                  <span class="text-sm">${device.lastSeen ? new Date(device.lastSeen).toLocaleString('es') : "Nunca"}</span>
+                </div>
+              </td>
+              <td class="px-6 py-4">
+                <div class="flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" 
+                    class="${device.health === 'Good' ? 'text-green-500' :
+                device.health === 'Fair' ? 'text-yellow-500' :
+                  'text-red-500'
+              } h-4 w-4" 
+                    width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                  </svg>
+                  <span class="text-sm">${device.health || "Desconocida"}</span>
+                </div>
+              </td>
+            `;
+            tbody.appendChild(row);
+          }
+        }
+
+        // Actualizar el selector de dispositivos también
+        deviceSelect.innerHTML = '<option value="all">Todos los Dispositivos</option>';
+        for (let mac in devices) {
+          const device = devices[mac];
+          const option = document.createElement('option');
+          option.value = mac;
+          option.textContent = `${mac} - ${device.name || "Dispositivo Sin Nombre"}`;
+          deviceSelect.appendChild(option);
+        }
+
+        // Reemplazar la tabla existente con la nueva
+        devicesTable.parentNode.replaceChild(tbody, devicesTable);
+      });
+    
+    
+      // socket.on('devices', function (devices) {
         // Si devices es un arreglo, conviértelo en objeto indexado por la MAC
         if (Array.isArray(devices)) {
           devices = devices.reduce((acc, device) => {

@@ -246,9 +246,9 @@ void tareaEnvio(void* parameter) {
       JSONVar jsonData;
       // jsonData["mac"] = deviceMac;
       // jsonData["board"] = "esp32_01eva01";
-      jsonData["temperature"] = String(temperatura);
+      jsonData["temperature"] = temperatura;
       // jsonData["temperature"] = 10;
-      jsonData["humidity"] = String(humedad);
+      jsonData["humidity"] = humedad;
       // jsonData["humidity"] = 10;
       // jsonData["anemometro"] = String(acumuladorVueltas);
       // jsonData["pluviometro"] = String(acumuladorMmCaidos);

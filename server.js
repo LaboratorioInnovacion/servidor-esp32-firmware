@@ -363,6 +363,7 @@ mqttClient.on('message', async (topic, message) => {
         name: payload.name || "",
         status: "online",
         lastSeen: now,
+        version: payload.version || "",   // Agrega el campo version aquí
         health: "OK"
       };
       // Para las mediciones, puedes almacenar un arreglo o datos JSON
